@@ -306,9 +306,11 @@ class CustomizationManager {
         const btnBackgroundLabel = document.getElementById('btn-customization-background-label');
         const previewEl = document.getElementById('customization-background-preview');
         const nameEl = document.getElementById('customization-background-name');
+        const noteEl = document.getElementById('customization-background-note');
         const inputBackground = document.getElementById('input-customization-background');
 
         this._updateThemeButtons();
+        this._renderCustomizationSummary();
 
         if (previewEl) {
             const background = this._getPreviewBackground();
@@ -325,6 +327,12 @@ class CustomizationManager {
                 nameEl.textContent = 'Nothing uploaded yet';
             }
         }
+
+        if (noteEl) {
+            noteEl.textContent = this._getBackgroundNote(this._getPreviewBackground());
+        }
+
+        this._renderStatus();
 
         if (btnSave) {
             btnSave.disabled = this.isSaving || this.isRemovingBackground;
@@ -391,7 +399,81 @@ class CustomizationManager {
         return `
             ${media}
             <div class="customization-background-badge">${this._escapeHtml(badge)}</div>
+            <div class="customization-background-fit-label">Cropped to fill the browser frame</div>
         `;
+    }
+
+    /**
+     * Render the top summary for the customization modal.
+     */
+    _renderCustomizationSummary() {
+        const themeEl = document.getElementById('customization-summary-theme');
+        const backgroundEl = document.getElementById('customization-summary-background');
+        const background = this._getPreviewBackground();
+        const themeLabel = this.draftTheme === 'light' ? 'Light' : 'Dark';
+        const themeSuffix = this.draftTheme !== this.settings.theme ? ' (unsaved)' : '';
+
+        if (themeEl) {
+            themeEl.textContent = `Theme: ${themeLabel}${themeSuffix}`;
+        }
+
+        if (backgroundEl) {
+            if (!background?.label) {
+                backgroundEl.textContent = 'Background: none';
+            } else {
+                const typeLabel = background.type === 'video' ? 'MP4 video' : 'image';
+                const suffix = background.pending ? ' (ready to upload)' : '';
+                backgroundEl.textContent = `Background: ${background.label} - ${typeLabel}${suffix}`;
+            }
+        }
+    }
+
+    /**
+     * Render a compact status pill for save/remove/draft state.
+     */
+    _renderStatus() {
+        const statusEl = document.getElementById('customization-status');
+        if (!statusEl) return;
+
+        const hasThemeChange = this.draftTheme !== this.settings.theme;
+        const hasBackgroundChange = Boolean(this.draftBackgroundFile);
+        let message = 'Current settings are active.';
+        let statusClass = 'is-idle';
+
+        if (this.isSaving) {
+            message = 'Saving customization...';
+            statusClass = 'is-busy';
+        } else if (this.isRemovingBackground) {
+            message = 'Removing background...';
+            statusClass = 'is-busy';
+        } else if (hasThemeChange || hasBackgroundChange) {
+            message = 'Unsaved changes. Click Save Changes.';
+            statusClass = 'is-draft';
+        }
+
+        statusEl.textContent = message;
+        statusEl.className = `customization-status ${statusClass}`;
+    }
+
+    /**
+     * Explain how the selected or saved background will be applied.
+     * @param {object|null} background
+     * @returns {string}
+     */
+    _getBackgroundNote(background) {
+        if (!background?.url) {
+            return 'Choose PNG/JPG for compressed still backgrounds, or MP4 for a muted video background.';
+        }
+
+        const sizeText = background.width && background.height
+            ? ` Saved target: ${background.width}x${background.height}.`
+            : '';
+
+        if (background.type === 'video') {
+            return `MP4 backgrounds are fitted to the browser frame and always play muted.${sizeText}`;
+        }
+
+        return `PNG/JPG backgrounds are resized and compressed for the current browser size.${sizeText}`;
     }
 
     /**
@@ -404,6 +486,8 @@ class CustomizationManager {
                 url: this.draftBackgroundPreviewUrl,
                 type: this._getBackgroundTypeFromFile(this.draftBackgroundFile),
                 label: this.draftBackgroundFile.name || 'Selected background',
+                width: this._getViewportWidth(),
+                height: this._getViewportHeight(),
                 pending: true
             };
         }
@@ -413,6 +497,8 @@ class CustomizationManager {
                 url: this.settings.background_url,
                 type: this.settings.background_type,
                 label: this.settings.background_name || 'Saved background',
+                width: this.settings.background_width,
+                height: this.settings.background_height,
                 pending: false
             };
         }

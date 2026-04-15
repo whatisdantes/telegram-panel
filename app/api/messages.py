@@ -12,7 +12,12 @@ from telethon.errors import (
     RPCError,
     UserNotMutualContactError,
 )
-from telethon.tl.functions.contacts import AddContactRequest, GetContactsRequest, ImportContactsRequest
+from telethon.tl.functions.contacts import (
+    AddContactRequest,
+    DeleteContactsRequest,
+    GetContactsRequest,
+    ImportContactsRequest,
+)
 from telethon.tl.functions.messages import GetPeerDialogsRequest
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.types import InputDialogPeer, InputPhoneContact, User
@@ -327,6 +332,11 @@ async def list_dialogs(
                 "id": dialog.entity.id,
                 "name": dialog.name or getattr(entity, "title", "") or f"Chat {dialog.entity.id}",
                 "username": getattr(entity, "username", "") or "",
+                "photo_url": (
+                    f"/api/messages/{session_name}/user/{dialog.entity.id}/avatar"
+                    if getattr(entity, "photo", None)
+                    else None
+                ),
                 "is_group": bool(is_group),
                 "is_channel": bool(is_channel),
                 "unread_count": dialog.unread_count,
@@ -394,6 +404,47 @@ async def list_contacts(session_name: str) -> list[dict[str, Any]]:
         raise HTTPException(status_code=500, detail="Failed to list contacts.")
 
 
+@router.delete("/{session_name}/contacts/{entity_id}")
+async def delete_contact(session_name: str, entity_id: int) -> dict[str, Any]:
+    """Remove a user from the account contacts."""
+    client = _require_client(session_name)
+
+    try:
+        entity = await client.get_entity(entity_id)
+        if (
+            not isinstance(entity, User)
+            or getattr(entity, "self", False)
+            or getattr(entity, "deleted", False)
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Only saved user contacts can be removed from contacts.",
+            )
+
+        logger.info("Delete contact requested for %s: entity_id=%s", session_name, entity_id)
+        input_user = await client.get_input_entity(entity)
+        await client(DeleteContactsRequest(id=[input_user]))
+        logger.info("Deleted contact for %s: entity_id=%s", session_name, entity_id)
+
+        return {
+            "ok": True,
+            "entity_id": entity_id,
+            "message": "Contact removed.",
+        }
+
+    except HTTPException:
+        raise
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Contact not found.")
+    except FloodWaitError as exc:
+        raise _flood_wait_exception(exc)
+    except RPCError as exc:
+        raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
+    except Exception:
+        logger.exception("Error deleting contact %s for %s", entity_id, session_name)
+        raise HTTPException(status_code=500, detail="Failed to delete contact.")
+
+
 @router.get("/{session_name}/history/{entity_id}")
 async def get_message_history(
     session_name: str,
@@ -442,6 +493,34 @@ async def get_message_history(
     except Exception as e:
         logger.exception("Error getting history for %s in %s", entity_id, session_name)
         raise HTTPException(status_code=500, detail="Failed to get message history.")
+
+
+@router.post("/{session_name}/read/{entity_id}")
+async def mark_dialog_read(session_name: str, entity_id: int) -> dict[str, Any]:
+    """Mark all incoming messages in a dialog as read in Telegram."""
+    client = _require_client(session_name)
+
+    try:
+        entity = await client.get_entity(entity_id)
+        logger.info("Marking dialog as read: session=%s entity_id=%s", session_name, entity_id)
+        await client.send_read_acknowledge(entity)
+        logger.info("Marked dialog as read: session=%s entity_id=%s", session_name, entity_id)
+
+        return {
+            "ok": True,
+            "entity_id": getattr(entity, "id", entity_id),
+            "unread_count": 0,
+        }
+
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Chat not found.")
+    except FloodWaitError as exc:
+        raise _flood_wait_exception(exc)
+    except RPCError as exc:
+        raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
+    except Exception:
+        logger.exception("Error marking dialog %s as read for %s", entity_id, session_name)
+        raise HTTPException(status_code=500, detail="Failed to mark chat as read.")
 
 
 @router.delete("/{session_name}/dialog/{entity_id}")

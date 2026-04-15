@@ -440,7 +440,7 @@ def get_user_status_string(status) -> str:
         return "online"
     if isinstance(status, UserStatusOffline):
         return (
-            f"offline (last seen {status.was_online.isoformat()})"
+            f"last seen {status.was_online.strftime('%H:%M %d.%m.%Y')}"
             if status.was_online
             else "offline"
         )

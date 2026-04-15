@@ -92,6 +92,20 @@ class ProfileManager {
                 this._handleAddChatUserToContacts();
             });
         }
+
+        const btnAccountInfoOpenChat = document.getElementById('btn-account-info-open-chat');
+        if (btnAccountInfoOpenChat) {
+            btnAccountInfoOpenChat.addEventListener('click', () => {
+                this._handleOpenChatFromProfile();
+            });
+        }
+
+        const btnAccountInfoDeleteChat = document.getElementById('btn-account-info-delete-chat');
+        if (btnAccountInfoDeleteChat) {
+            btnAccountInfoDeleteChat.addEventListener('click', () => {
+                this._handleDeleteChatFromProfile();
+            });
+        }
     }
 
     /**
@@ -428,6 +442,13 @@ class ProfileManager {
             return;
         }
 
+        const confirmed = window.confirm(
+            'Удалить все фото профиля?\n\nЭто действие удалит весь набор фотографий аккаунта в Telegram.'
+        );
+        if (!confirmed) {
+            return;
+        }
+
         await this.deleteAvatar(sessionName);
     }
 
@@ -436,12 +457,29 @@ class ProfileManager {
      * @param {string} sessionName
      */
     async deleteAvatar(sessionName) {
-        const result = await this.app.api('DELETE', `/api/profile/${encodeURIComponent(sessionName)}/avatar`);
+        const btnDeleteAvatar = document.getElementById('btn-delete-avatar');
+        const originalText = btnDeleteAvatar ? btnDeleteAvatar.textContent : '';
 
-        if (result) {
-            this.app.showToast(result.message || 'Profile photos removed', 'success');
-            await this.loadProfile(sessionName);
-            await this.app.accountManager.loadAccounts();
+        if (btnDeleteAvatar) {
+            btnDeleteAvatar.disabled = true;
+            btnDeleteAvatar.textContent = 'Removing...';
+        }
+
+        this.app.showToast('Removing profile photos...', 'warning', 2500);
+
+        try {
+            const result = await this.app.api('DELETE', `/api/profile/${encodeURIComponent(sessionName)}/avatar`);
+
+            if (result) {
+                this.app.showToast(result.message || 'Profile photos removed', 'success');
+                await this.loadProfile(sessionName);
+                await this.app.accountManager.loadAccounts();
+            }
+        } finally {
+            if (btnDeleteAvatar) {
+                btnDeleteAvatar.textContent = originalText || 'Remove All Photos';
+                btnDeleteAvatar.disabled = !this.loadedProfile?.photo_url;
+            }
         }
     }
 
@@ -721,6 +759,8 @@ class ProfileManager {
         const body = document.getElementById('account-info-body');
         const titleEl = document.getElementById('account-info-title');
         const primaryBtn = document.getElementById('btn-account-info-primary');
+        const openChatBtn = document.getElementById('btn-account-info-open-chat');
+        const deleteChatBtn = document.getElementById('btn-account-info-delete-chat');
         this.app.showLoading(body);
         if (titleEl) titleEl.textContent = 'User Profile';
         if (primaryBtn) {
@@ -728,6 +768,8 @@ class ProfileManager {
             primaryBtn.disabled = false;
             primaryBtn.textContent = '';
         }
+        if (openChatBtn) openChatBtn.classList.add('hidden');
+        if (deleteChatBtn) deleteChatBtn.classList.add('hidden');
 
         const data = await this.app.api('GET', `/api/messages/${encodeURIComponent(sessionName)}/user/${encodeURIComponent(entityId)}`);
 
@@ -758,6 +800,36 @@ class ProfileManager {
             initialFirstName: this.loadedChatProfile.first_name || '',
             initialLastName: this.loadedChatProfile.last_name || ''
         });
+    }
+
+    /**
+     * Return from the user-profile modal back to the open chat.
+     */
+    _handleOpenChatFromProfile() {
+        if (!this.loadedChatProfile?.id) {
+            return;
+        }
+
+        const fullName = [this.loadedChatProfile.first_name, this.loadedChatProfile.last_name]
+            .filter(Boolean)
+            .join(' ')
+            || this.loadedChatProfile.username
+            || String(this.loadedChatProfile.id);
+
+        this.app.hideModal('modal-account-info');
+        this.app.selectChat(this.loadedChatProfile.id, fullName);
+    }
+
+    /**
+     * Start the existing delete-chat flow from the user-profile modal.
+     */
+    _handleDeleteChatFromProfile() {
+        if (!this.app.chatManager || !this.loadedChatProfile?.id) {
+            return;
+        }
+
+        this.app.hideModal('modal-account-info');
+        this.app.chatManager.deleteCurrentChat();
     }
 
     /**
@@ -807,32 +879,51 @@ class ProfileManager {
             return;
         }
 
-        settingsEl.innerHTML = entries.map(([fieldName, config]) => `
-            <div class="privacy-item">
-                <div class="privacy-item-header">
-                    <div class="privacy-item-title">${this._escapeHtml(config.label || fieldName)}</div>
-                    ${config.has_exceptions ? '<span class="privacy-item-badge">Has exceptions</span>' : ''}
+        settingsEl.innerHTML = entries.map(([fieldName, config]) => {
+            const description = this._getPrivacyDescription(fieldName);
+            const currentLabel = this._getPrivacyOptionLabel(config, config.value);
+            const isLimited = this._isLimitedPrivacyField(fieldName, config);
+
+            return `
+                <div class="privacy-item ${isLimited ? 'privacy-item-limited' : ''}" data-privacy-card="${this._escapeHtml(fieldName)}">
+                    <div class="privacy-item-header">
+                        <div class="privacy-item-heading">
+                            <div class="privacy-item-title">${this._escapeHtml(config.label || fieldName)}</div>
+                            <div class="privacy-item-description">${this._escapeHtml(description)}</div>
+                        </div>
+                        <div class="privacy-item-badges">
+                            <span class="privacy-item-current">${this._escapeHtml(currentLabel)}</span>
+                            ${config.has_exceptions ? '<span class="privacy-item-badge">Exceptions</span>' : ''}
+                            ${isLimited ? '<span class="privacy-item-badge privacy-item-badge-muted">Telegram limit</span>' : ''}
+                        </div>
+                    </div>
+                    <select data-privacy-field="${this._escapeHtml(fieldName)}" aria-label="${this._escapeHtml(config.label || fieldName)}">
+                        ${(config.options || []).map(option => `
+                            <option value="${this._escapeHtml(option.value)}" ${option.value === config.value ? 'selected' : ''}>
+                                ${this._escapeHtml(option.label)}
+                            </option>
+                        `).join('')}
+                    </select>
+                    ${this._buildPrivacyNote(config, fieldName)}
                 </div>
-                <select data-privacy-field="${this._escapeHtml(fieldName)}">
-                    ${(config.options || []).map(option => `
-                        <option value="${this._escapeHtml(option.value)}" ${option.value === config.value ? 'selected' : ''}>
-                            ${this._escapeHtml(option.label)}
-                        </option>
-                    `).join('')}
-                </select>
-                ${this._buildPrivacyNote(config)}
-            </div>
-        `).join('');
+            `;
+        }).join('');
 
         settingsEl.classList.remove('hidden');
+        settingsEl.querySelectorAll('[data-privacy-field]').forEach(select => {
+            select.addEventListener('change', () => {
+                this._updatePrivacyCardState(select);
+            });
+        });
     }
 
     /**
      * Build a short explanation for a privacy field
      * @param {object} config
+     * @param {string} fieldName
      * @returns {string}
      */
-    _buildPrivacyNote(config) {
+    _buildPrivacyNote(config, fieldName) {
         const notes = [];
         if (config.has_exceptions) {
             const allowCount = Number(config.allow_exceptions || 0);
@@ -847,14 +938,79 @@ class ProfileManager {
             );
         }
         const optionValues = (config.options || []).map(option => option.value);
-        if (optionValues.includes('contacts_premium')) {
-            notes.push('Telegram only allows Everybody or Contacts and Premium subscribers here');
+        if (fieldName === 'no_paid_messages' || optionValues.includes('contacts_premium')) {
+            notes.push('This Telegram setting has only two choices: Everybody, or Contacts and Premium subscribers');
         } else if ((config.options || []).length === 2) {
             notes.push('Telegram only allows Everybody or My Contacts here');
         }
 
         if (!notes.length) return '';
         return `<div class="privacy-item-note">${this._escapeHtml(notes.join('. '))}</div>`;
+    }
+
+    /**
+     * Update the privacy card badge after the user changes a select.
+     * @param {HTMLSelectElement} select
+     */
+    _updatePrivacyCardState(select) {
+        const fieldName = select.dataset.privacyField;
+        const card = select.closest('.privacy-item');
+        const currentBadge = card ? card.querySelector('.privacy-item-current') : null;
+        const selectedOption = select.options[select.selectedIndex];
+        const originalValue = this.loadedPrivacySettings[fieldName];
+        const isChanged = originalValue !== select.value;
+
+        if (card) {
+            card.classList.toggle('is-changed', isChanged);
+        }
+        if (currentBadge) {
+            currentBadge.textContent = isChanged
+                ? `Changed to ${selectedOption ? selectedOption.textContent.trim() : select.value}`
+                : (selectedOption ? selectedOption.textContent.trim() : select.value);
+        }
+    }
+
+    /**
+     * Get a concise explanation for a privacy field.
+     * @param {string} fieldName
+     * @returns {string}
+     */
+    _getPrivacyDescription(fieldName) {
+        const descriptions = {
+            status_timestamp: 'Controls who can see online and last-seen status.',
+            phone_number: 'Controls who can see this account phone number.',
+            profile_photo: 'Controls who can see profile photos.',
+            forwards: 'Controls whether forwards can link back to this account.',
+            chat_invite: 'Controls who can add this account to groups and channels.',
+            phone_call: 'Controls who can call this account.',
+            no_paid_messages: 'Controls who can start direct messages with this account.'
+        };
+
+        return descriptions[fieldName] || 'Base Telegram visibility rule for this account.';
+    }
+
+    /**
+     * Return the label for the current privacy option.
+     * @param {object} config
+     * @param {string} value
+     * @returns {string}
+     */
+    _getPrivacyOptionLabel(config, value) {
+        const option = (config.options || []).find(item => item.value === value);
+        return option?.label || value || 'Unknown';
+    }
+
+    /**
+     * Detect privacy fields where Telegram exposes a reduced option set.
+     * @param {string} fieldName
+     * @param {object} config
+     * @returns {boolean}
+     */
+    _isLimitedPrivacyField(fieldName, config) {
+        const optionValues = (config.options || []).map(option => option.value);
+        return fieldName === 'no_paid_messages'
+            || optionValues.includes('contacts_premium')
+            || optionValues.length < 3;
     }
 
     /**
@@ -1068,6 +1224,8 @@ class ProfileManager {
     _renderChatUserInfo(data) {
         const body = document.getElementById('account-info-body');
         const primaryBtn = document.getElementById('btn-account-info-primary');
+        const openChatBtn = document.getElementById('btn-account-info-open-chat');
+        const deleteChatBtn = document.getElementById('btn-account-info-delete-chat');
         if (!body) return;
 
         const fullName = [data.first_name, data.last_name].filter(Boolean).join(' ')
@@ -1081,6 +1239,12 @@ class ProfileManager {
             data.is_contact ? '<span class="profile-badge">In contacts</span>' : '',
             data.is_bot ? '<span class="profile-badge profile-badge-muted">Bot</span>' : ''
         ].filter(Boolean).join('');
+        const canAdd = Boolean(data.can_add_to_contacts);
+        const isContact = Boolean(data.is_contact);
+        const canDeleteChat = this._isCurrentChatProfileAvailable();
+        const contactActionLabel = isContact
+            ? 'Edit saved name'
+            : (canAdd ? 'Save to contacts' : 'Contact action unavailable');
 
         body.innerHTML = `
             <div class="chat-profile-summary">
@@ -1101,6 +1265,20 @@ class ProfileManager {
                 </div>
             </div>
             ${data.about ? `<div class="chat-profile-about">${this._escapeHtml(data.about)}</div>` : ''}
+            <div class="chat-profile-action-strip">
+                <div class="chat-profile-action-card">
+                    <div class="chat-profile-action-title">Open chat</div>
+                    <div class="chat-profile-action-text">Return to the dialog without losing context.</div>
+                </div>
+                <div class="chat-profile-action-card">
+                    <div class="chat-profile-action-title">${this._escapeHtml(contactActionLabel)}</div>
+                    <div class="chat-profile-action-text">Set first and last name, or keep Telegram display name.</div>
+                </div>
+                <div class="chat-profile-action-card danger">
+                    <div class="chat-profile-action-title">Delete chat</div>
+                    <div class="chat-profile-action-text">Uses the same confirmation as the header delete button.</div>
+                </div>
+            </div>
             <div class="account-info-grid">
                 <div class="label">User ID</div>
                 <div class="value">${data.id || 'N/A'}</div>
@@ -1119,9 +1297,6 @@ class ProfileManager {
             return;
         }
 
-        const canAdd = Boolean(data.can_add_to_contacts);
-        const isContact = Boolean(data.is_contact);
-
         if (canAdd || isContact) {
             primaryBtn.classList.remove('hidden');
             primaryBtn.textContent = isContact ? 'Edit contact name' : 'Add to contacts';
@@ -1130,6 +1305,16 @@ class ProfileManager {
             primaryBtn.classList.add('hidden');
             primaryBtn.disabled = false;
             primaryBtn.textContent = '';
+        }
+
+        if (openChatBtn) {
+            openChatBtn.classList.remove('hidden');
+            openChatBtn.disabled = false;
+        }
+
+        if (deleteChatBtn) {
+            deleteChatBtn.classList.toggle('hidden', !canDeleteChat);
+            deleteChatBtn.disabled = !canDeleteChat;
         }
     }
 

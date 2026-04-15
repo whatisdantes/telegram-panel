@@ -56,16 +56,32 @@
                         <div class="chat-header-name-row">
                             <div class="chat-header-name" id="chat-header-name"></div>
                             <div class="chat-header-presence hidden" id="chat-header-presence"></div>
+                            <div class="chat-header-type hidden" id="chat-header-type"></div>
                         </div>
-                        <div class="chat-header-status" id="chat-header-status"></div>
+                        <div class="chat-header-subrow">
+                            <div class="chat-header-status" id="chat-header-status"></div>
+                            <div class="chat-header-meta" id="chat-header-meta"></div>
+                        </div>
                     </div>
                 </div>
                 <div class="chat-header-actions">
-                    <button id="btn-delete-chat" class="icon-btn danger-btn hidden" title="Delete Chat for Both">
-                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 7h12l-1 14H7L6 7zm3-4h6l1 2h4v2H4V5h4l1-2z"/></svg>
+                    <button
+                        id="btn-ghost-mode"
+                        class="ghost-mode-toggle active"
+                        type="button"
+                        aria-pressed="true"
+                        title="Ghost-mode is on: messages will stay unread in Telegram"
+                    >
+                        <span class="ghost-mode-mark" aria-hidden="true"></span>
+                        <span class="ghost-mode-label">Ghost</span>
                     </button>
-                    <button id="btn-chat-user-info" class="icon-btn" title="User Info">
+                    <button id="btn-delete-chat" class="chat-action-btn chat-action-danger hidden" type="button" title="Delete Chat for Both" aria-label="Delete chat for both participants">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 7h12l-1 14H7L6 7zm3-4h6l1 2h4v2H4V5h4l1-2z"/></svg>
+                        <span>Delete</span>
+                    </button>
+                    <button id="btn-chat-user-info" class="chat-action-btn" type="button" title="User Info" aria-label="Open user profile">
                         <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                        <span>Profile</span>
                     </button>
                 </div>
             </header>
@@ -177,14 +193,20 @@
                     <label for="add-contact-input">@username или номер телефона</label>
                     <input type="text" id="add-contact-input" placeholder="@username or 79991234567" autocomplete="off">
                 </div>
-                <div class="form-group">
-                    <label for="add-contact-first-name">Имя</label>
-                    <input type="text" id="add-contact-first-name" placeholder="Оставьте пустым, чтобы взять имя из Telegram" autocomplete="off">
+                <div class="contact-name-grid">
+                    <div class="form-group">
+                        <label for="add-contact-first-name">Имя</label>
+                        <input type="text" id="add-contact-first-name" placeholder="Можно оставить пустым" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="add-contact-last-name">Фамилия</label>
+                        <input type="text" id="add-contact-last-name" placeholder="Можно оставить пустым" autocomplete="off">
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label for="add-contact-last-name">Фамилия</label>
-                    <input type="text" id="add-contact-last-name" placeholder="Оставьте пустым, чтобы взять фамилию из Telegram" autocomplete="off">
+                <div id="add-contact-name-helper" class="form-helper">
+                    Если имя или фамилия пустые, панель возьмет данные из Telegram-профиля.
                 </div>
+                <div id="add-contact-status" class="contact-action-status hidden"></div>
                 <div id="add-contact-error" class="form-error hidden"></div>
             </div>
             <div class="modal-footer">
@@ -215,6 +237,7 @@
                             <input type="file" id="input-avatar-upload-queue" accept="image/*" multiple hidden>
                         </label>
                         <button id="btn-delete-avatar" class="btn btn-small btn-danger">Remove All Photos</button>
+                        <div class="profile-danger-note">Deletes every profile photo after confirmation.</div>
                     </div>
                 </div>
                 <div id="profile-avatar-queue" class="profile-avatar-queue hidden">
@@ -280,7 +303,9 @@
                 <div class="loading-spinner"><div class="spinner"></div></div>
             </div>
             <div class="modal-footer">
+                <button id="btn-account-info-open-chat" class="btn btn-secondary hidden" type="button">Open Chat</button>
                 <button id="btn-account-info-primary" class="btn btn-primary hidden"></button>
+                <button id="btn-account-info-delete-chat" class="btn btn-danger hidden" type="button">Delete Chat</button>
                 <button class="btn btn-secondary modal-close-btn">Close</button>
             </div>
         </div>
@@ -295,6 +320,14 @@
                 <button class="modal-close icon-btn">&times;</button>
             </div>
             <div class="modal-body">
+                <div class="customization-overview">
+                    <div>
+                        <div class="customization-overview-kicker">Current setup</div>
+                        <div id="customization-summary-theme" class="customization-overview-title">Theme: Dark</div>
+                        <div id="customization-summary-background" class="customization-overview-text">Background: none</div>
+                    </div>
+                    <div id="customization-status" class="customization-status">Current settings are active.</div>
+                </div>
                 <div class="customization-section">
                     <div class="customization-section-header">
                         <h4>Theme</h4>
@@ -304,10 +337,12 @@
                         <button id="btn-theme-dark" class="theme-option" type="button" data-theme-option="dark" aria-pressed="true">
                             <span class="theme-option-preview theme-option-preview-dark"></span>
                             <span class="theme-option-label">Dark</span>
+                            <span class="theme-option-description">Deep operator console for night work.</span>
                         </button>
                         <button id="btn-theme-light" class="theme-option" type="button" data-theme-option="light" aria-pressed="false">
                             <span class="theme-option-preview theme-option-preview-light"></span>
                             <span class="theme-option-label">Light</span>
+                            <span class="theme-option-description">High-contrast surface for bright rooms.</span>
                         </button>
                     </div>
                 </div>
@@ -316,12 +351,26 @@
                         <h4>Background</h4>
                         <span>PNG, JPG, or MP4 for the whole interface</span>
                     </div>
+                    <div class="customization-fit-grid" aria-label="Background behavior">
+                        <div class="customization-fit-item">
+                            <span>Fit</span>
+                            <strong>Browser size</strong>
+                        </div>
+                        <div class="customization-fit-item">
+                            <span>Images</span>
+                            <strong>Compressed</strong>
+                        </div>
+                        <div class="customization-fit-item">
+                            <span>Videos</span>
+                            <strong>Muted MP4</strong>
+                        </div>
+                    </div>
                     <div id="customization-background-preview" class="customization-background-preview">
                         <div class="customization-background-empty">No background selected</div>
                     </div>
                     <div class="customization-background-meta">
                         <div id="customization-background-name">Nothing uploaded yet</div>
-                        <div class="customization-background-note">PNG/JPG are optimized for the current browser size. MP4 backgrounds are fitted to the interface and play muted.</div>
+                        <div id="customization-background-note" class="customization-background-note">PNG/JPG are optimized for the current browser size. MP4 backgrounds are fitted to the interface and play muted.</div>
                     </div>
                     <div class="customization-background-actions">
                         <label class="btn btn-primary" id="btn-customization-background-label">
@@ -335,6 +384,9 @@
                         </label>
                         <button id="btn-remove-customization-background" class="btn btn-secondary" type="button">Remove Background</button>
                     </div>
+                    <div class="customization-fallback-note">
+                        If <code>ui_customization.json</code> is missing, the panel starts with safe defaults. Saving here recreates it.
+                    </div>
                 </div>
                 <div id="customization-error" class="form-error hidden"></div>
             </div>
@@ -346,12 +398,11 @@
     </div>
 
     <button id="btn-customization" class="floating-customization-btn" type="button" title="Customize interface">
-        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M14 4l6 6"></path>
-            <path d="M12.5 5.5l6 6"></path>
-            <path d="M5 19l3.8-.9L18 8.9l-3-3L5.9 15.1 5 19z"></path>
-            <path d="M4.8 19.2c.7-.2 1.4-.1 2 .3.6.4 1 .9 1.2 1.7"></path>
-            <path d="M6.8 14.2l3 3"></path>
+        <svg class="brush-icon" viewBox="0 0 24 24" width="25" height="25" fill="none" aria-hidden="true">
+            <path class="brush-handle" d="M14.9 4.4c1.4-1.4 3.4-1.8 4.4-.8 1 1 .6 3-.8 4.4l-6.8 6.8-3.6-3.6 6.8-6.8z"></path>
+            <path class="brush-ferrule" d="M7.4 12.2l4.4 4.4"></path>
+            <path class="brush-tip" d="M7.2 12.6c-2.8 1.3-3.8 3.5-3.7 6.9 3.4.1 5.6-.9 6.9-3.7"></path>
+            <path class="brush-shine" d="M16.6 5.7l1.7 1.7"></path>
         </svg>
     </button>
 

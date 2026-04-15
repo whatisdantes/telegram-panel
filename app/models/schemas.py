@@ -119,6 +119,7 @@ class DialogSchema(BaseModel):
     id: int
     name: str = ""
     username: str = ""
+    photo_url: Optional[str] = None
     is_group: bool = False
     is_channel: bool = False
     unread_count: int = 0

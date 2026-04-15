@@ -15,7 +15,8 @@ class App {
             messages: [],
             customization: null,
             currentChatStatus: '',
-            currentChatIsOnline: false
+            currentChatIsOnline: false,
+            ghostModeEnabled: this._loadGhostModePreference()
         };
 
         this.accountManager = null;
@@ -48,6 +49,7 @@ class App {
 
         // Wire up global UI events
         this._bindGlobalEvents();
+        this.updateGhostModeButton();
 
         console.log('[App] Initialized');
     }
@@ -106,6 +108,13 @@ class App {
         if (btnDeleteChat) {
             btnDeleteChat.addEventListener('click', () => {
                 this.chatManager.deleteCurrentChat();
+            });
+        }
+
+        const btnGhostMode = document.getElementById('btn-ghost-mode');
+        if (btnGhostMode) {
+            btnGhostMode.addEventListener('click', () => {
+                this.setGhostMode(!this.state.ghostModeEnabled);
             });
         }
 
@@ -226,18 +235,7 @@ class App {
         messagesEmpty.classList.add('hidden');
         messagesContainer.classList.remove('hidden');
 
-        // Set header info
-        document.getElementById('chat-header-name').textContent = title || 'Chat';
-        document.getElementById('chat-header-status').textContent = '';
-        const chatPresence = document.getElementById('chat-header-presence');
-        if (chatPresence) {
-            chatPresence.textContent = '';
-            chatPresence.classList.add('hidden');
-        }
-
-        const chatAvatar = document.getElementById('chat-avatar');
-        chatAvatar.className = `avatar avatar-color-${Math.abs(this._hashCode(String(entityId))) % 8}`;
-        chatAvatar.textContent = this.chatManager.getInitials(title || '?');
+        this.chatManager.renderChatHeader(entityId, title);
         this.chatManager.updateDeleteChatButton();
         if (this.profileManager) {
             this.profileManager.updateChatProfileButton();
@@ -245,7 +243,12 @@ class App {
 
         // Clear messages and load history
         messagesContainer.innerHTML = '';
-        this.chatManager.loadHistory(this.state.currentAccount, entityId);
+        const sessionName = this.state.currentAccount;
+        this.chatManager.loadHistory(sessionName, entityId).then((loaded) => {
+            if (loaded) {
+                this.chatManager.markChatReadIfNeeded(sessionName, entityId, 'chat_open');
+            }
+        });
         this.chatManager.loadCurrentChatPresence();
 
         // Focus input
@@ -264,7 +267,11 @@ class App {
         document.getElementById('messages-empty').classList.remove('hidden');
         document.getElementById('messages-container').classList.add('hidden');
         document.getElementById('messages-container').innerHTML = '';
-        document.getElementById('messages-empty').querySelector('.empty-text').textContent = 'Select a chat to start messaging';
+        document.getElementById('messages-empty').innerHTML = this.emptyStateHtml({
+            icon: 'MSG',
+            title: 'Select a chat',
+            text: 'Open a dialog to start messaging.'
+        });
         if (this.chatManager) {
             this.chatManager.updateDeleteChatButton();
         }
@@ -346,6 +353,71 @@ class App {
     }
 
     /**
+     * Enable or disable Ghost-mode.
+     * When Ghost-mode is enabled, opening chats does not mark messages as read in Telegram.
+     * @param {boolean} enabled
+     */
+    setGhostMode(enabled) {
+        const nextValue = Boolean(enabled);
+        this.state.ghostModeEnabled = nextValue;
+
+        try {
+            localStorage.setItem('telegramPanelGhostModeEnabled', nextValue ? '1' : '0');
+        } catch (error) {
+            console.warn('[App] Could not save Ghost-mode setting:', error);
+        }
+
+        this.updateGhostModeButton();
+
+        if (nextValue) {
+            this.showToast('Ghost-mode enabled: messages stay unread in Telegram', 'info', 3500);
+            return;
+        }
+
+        this.showToast('Ghost-mode disabled: opened chats will be marked as read', 'warning', 4500);
+        if (this.chatManager) {
+            this.chatManager.markCurrentChatReadIfNeeded('ghost_disabled');
+        }
+    }
+
+    /**
+     * Sync the Ghost-mode toggle UI with the current setting.
+     */
+    updateGhostModeButton() {
+        const btnGhostMode = document.getElementById('btn-ghost-mode');
+        if (!btnGhostMode) return;
+
+        const enabled = Boolean(this.state.ghostModeEnabled);
+        const label = btnGhostMode.querySelector('.ghost-mode-label');
+
+        btnGhostMode.classList.toggle('active', enabled);
+        btnGhostMode.setAttribute('aria-pressed', String(enabled));
+        btnGhostMode.title = enabled
+            ? 'Ghost-mode is on: messages will stay unread in Telegram'
+            : 'Ghost-mode is off: opened chats will be marked as read';
+
+        if (label) {
+            label.textContent = enabled ? 'Ghost' : 'Read';
+        }
+    }
+
+    /**
+     * Load persisted Ghost-mode setting. Default is ON to preserve old behavior.
+     * @returns {boolean}
+     */
+    _loadGhostModePreference() {
+        try {
+            const stored = localStorage.getItem('telegramPanelGhostModeEnabled');
+            if (stored === null) {
+                return true;
+            }
+            return stored !== '0';
+        } catch {
+            return true;
+        }
+    }
+
+    /**
      * Show a modal
      * @param {string} modalId
      */
@@ -381,7 +453,7 @@ class App {
      */
     showLoading(element) {
         if (!element) return;
-        element.innerHTML = '<div class="loading-spinner"><div class="spinner"></div></div>';
+        element.innerHTML = this.loadingStateHtml(element.id || '');
     }
 
     /**
@@ -394,11 +466,79 @@ class App {
         const spinner = element.querySelector('.loading-spinner');
         if (spinner) {
             if (emptyText) {
-                spinner.outerHTML = `<div class="empty-state">${emptyText}</div>`;
+                spinner.outerHTML = this.emptyStateHtml({ title: emptyText });
             } else {
                 spinner.remove();
             }
         }
+    }
+
+    /**
+     * Build a consistent empty state block.
+     * @param {object} options
+     * @returns {string}
+     */
+    emptyStateHtml(options = {}) {
+        const icon = options.icon || '-';
+        const title = options.title || 'Nothing here yet';
+        const text = options.text || '';
+
+        return `
+            <div class="empty-state empty-state-card">
+                <div class="empty-icon">${this._escapeHtml(icon)}</div>
+                <div class="empty-title">${this._escapeHtml(title)}</div>
+                ${text ? `<div class="empty-text">${this._escapeHtml(text)}</div>` : ''}
+            </div>
+        `;
+    }
+
+    /**
+     * Build skeleton loading markup based on the target list.
+     * @param {string} targetId
+     * @returns {string}
+     */
+    loadingStateHtml(targetId = '') {
+        if (targetId === 'account-list') {
+            return this._listSkeletonHtml('account', 7);
+        }
+
+        if (targetId === 'dialog-list' || targetId === 'contact-list') {
+            return this._listSkeletonHtml('dialog', 8);
+        }
+
+        return '<div class="loading-spinner"><div class="spinner"></div></div>';
+    }
+
+    /**
+     * Build repeated list skeleton rows.
+     * @param {string} type
+     * @param {number} count
+     * @returns {string}
+     */
+    _listSkeletonHtml(type, count) {
+        const rows = Array.from({ length: count }, () => `
+            <div class="skeleton-row skeleton-row-${type}">
+                <div class="skeleton-avatar"></div>
+                <div class="skeleton-lines">
+                    <div class="skeleton-line skeleton-line-main"></div>
+                    <div class="skeleton-line skeleton-line-sub"></div>
+                </div>
+            </div>
+        `).join('');
+
+        return `<div class="skeleton-list">${rows}</div>`;
+    }
+
+    /**
+     * Escape HTML for generated UI strings.
+     * @param {string} text
+     * @returns {string}
+     */
+    _escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = String(text);
+        return div.innerHTML;
     }
 
     /**

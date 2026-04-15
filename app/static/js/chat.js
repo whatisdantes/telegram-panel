@@ -15,6 +15,8 @@ class ChatManager {
         this.isSubmittingContact = false;
         this.contactModalContext = null;
         this.typingResetTimer = null;
+        this.markReadRequests = new Set();
+        this.deletingContactIds = new Set();
 
         this._bindNewDialogEvents();
         this._bindContactEvents();
@@ -119,7 +121,13 @@ class ChatManager {
 
         const data = await this.app.api('GET', `/api/messages/${encodeURIComponent(sessionName)}/dialogs?limit=30`);
         if (!data) {
-            if (listEl) listEl.innerHTML = '<div class="empty-state">Failed to load chats</div>';
+            if (listEl) {
+                listEl.innerHTML = this.app.emptyStateHtml({
+                    icon: '!',
+                    title: 'Failed to load chats',
+                    text: 'Check the account connection and try refreshing.'
+                });
+            }
             return;
         }
 
@@ -152,7 +160,13 @@ class ChatManager {
         }
 
         if (!data) {
-            if (listEl) listEl.innerHTML = '<div class="empty-state">Failed to load contacts</div>';
+            if (listEl) {
+                listEl.innerHTML = this.app.emptyStateHtml({
+                    icon: '!',
+                    title: 'Failed to load contacts',
+                    text: 'Check the account connection and try again.'
+                });
+            }
             return;
         }
 
@@ -170,7 +184,11 @@ class ChatManager {
         if (!listEl) return;
 
         if (dialogs.length === 0) {
-            listEl.innerHTML = '<div class="empty-state">No chats yet</div>';
+            listEl.innerHTML = this.app.emptyStateHtml({
+                icon: 'CH',
+                title: 'No chats yet',
+                text: 'Incoming and outgoing dialogs will appear here.'
+            });
             this.updateDeleteChatButton();
             return;
         }
@@ -191,16 +209,24 @@ class ChatManager {
             const lastMsg = dialog.last_message || dialog.message || '';
             const time = dialog.last_message_date ? this.formatTime(dialog.last_message_date) : '';
             const unread = dialog.unread_count || 0;
+            const typeLabel = this._getDialogTypeLabel(dialog);
+            const previewBadge = this._getDialogPreviewBadge(lastMsg);
 
             item.innerHTML = `
-                <div class="dialog-avatar avatar-color-${colorIdx}">${this._escapeHtml(initials)}</div>
+                ${this._buildSidebarAvatarHtml(dialog.photo_url, name, dialog.id || dialog.entity_id || colorIdx)}
                 <div class="dialog-content">
                     <div class="dialog-top-row">
-                        <div class="dialog-name">${this._escapeHtml(name)}</div>
+                        <div class="dialog-title-wrap">
+                            <div class="dialog-name">${this._escapeHtml(name)}</div>
+                            ${typeLabel ? `<div class="dialog-type-pill">${this._escapeHtml(typeLabel)}</div>` : ''}
+                        </div>
                         <div class="dialog-time">${this._escapeHtml(time)}</div>
                     </div>
                     <div class="dialog-bottom-row">
-                        <div class="dialog-preview">${this._escapeHtml(this._truncate(lastMsg, 50))}</div>
+                        <div class="dialog-preview-wrap">
+                            ${previewBadge ? `<span class="dialog-preview-badge">${this._escapeHtml(previewBadge)}</span>` : ''}
+                            <div class="dialog-preview">${this._escapeHtml(this._truncate(this._cleanDialogPreview(lastMsg), 50))}</div>
+                        </div>
                         ${unread > 0 ? `<div class="dialog-unread">${unread > 99 ? '99+' : unread}</div>` : ''}
                     </div>
                 </div>
@@ -226,7 +252,11 @@ class ChatManager {
         if (!listEl) return;
 
         if (contacts.length === 0) {
-            listEl.innerHTML = '<div class="empty-state">No contacts yet</div>';
+            listEl.innerHTML = this.app.emptyStateHtml({
+                icon: 'CO',
+                title: 'No contacts yet',
+                text: 'Use "Добавить новый контакт" to save a user.'
+            });
             return;
         }
 
@@ -255,7 +285,15 @@ class ChatManager {
                     </div>
                     <div class="contact-meta">${this._escapeHtml(meta)}</div>
                 </div>
-                <button class="action-btn info-btn contact-edit-btn" type="button" title="Edit contact name">✎</button>
+                <div class="contact-actions">
+                    <button class="action-btn info-btn contact-open-btn" type="button" title="Open chat">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M20 2H4a2 2 0 00-2 2v18l4-4h14a2 2 0 002-2V4a2 2 0 00-2-2zM6 9h12v2H6V9zm0-3h12v2H6V6zm0 6h8v2H6v-2z"/></svg>
+                    </button>
+                    <button class="action-btn info-btn contact-edit-btn" type="button" title="Edit contact name">✎</button>
+                    <button class="action-btn danger-btn contact-delete-btn" type="button" title="Delete from contacts">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M6 7h12l-1 14H7L6 7zm3-4h6l1 2h4v2H4V5h4l1-2z"/></svg>
+                    </button>
+                </div>
             `;
 
             item.addEventListener('click', () => {
@@ -278,8 +316,126 @@ class ChatManager {
                 });
             }
 
+            const openBtn = item.querySelector('.contact-open-btn');
+            if (openBtn) {
+                openBtn.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.app.selectChat(contact.id, name);
+                });
+            }
+
+            const deleteBtn = item.querySelector('.contact-delete-btn');
+            if (deleteBtn) {
+                deleteBtn.disabled = this.deletingContactIds.has(String(contact.id));
+                deleteBtn.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.deleteContact(contact, name);
+                });
+            }
+
             listEl.appendChild(item);
         });
+    }
+
+    /**
+     * Remove a saved contact from Telegram contacts.
+     * @param {object} contact
+     * @param {string} name
+     */
+    async deleteContact(contact, name = '') {
+        const sessionName = this.app.state.currentAccount;
+        const entityId = contact?.id;
+        if (!sessionName || !entityId) {
+            this.app.showToast('Select an account and contact first', 'warning');
+            return;
+        }
+
+        const label = name || contact.display_name || contact.username || String(entityId);
+        const confirmed = window.confirm(
+            `Delete "${label}" from contacts?\n\nThe chat history will stay; only the saved contact entry will be removed.`
+        );
+        if (!confirmed) {
+            return;
+        }
+
+        const deleteKey = String(entityId);
+        if (this.deletingContactIds.has(deleteKey)) {
+            return;
+        }
+        this.deletingContactIds.add(deleteKey);
+        this.renderContacts(this.app.state.contacts || []);
+
+        try {
+            const result = await this.app.api(
+                'DELETE',
+                `/api/messages/${encodeURIComponent(sessionName)}/contacts/${encodeURIComponent(entityId)}`
+            );
+            if (!result?.ok) {
+                return;
+            }
+
+            this.app.state.contacts = (this.app.state.contacts || [])
+                .filter(item => String(item.id) !== String(entityId));
+            this.renderContacts(this.app.state.contacts);
+            this.app.showToast(result.message || 'Contact removed', 'success');
+        } finally {
+            this.deletingContactIds.delete(deleteKey);
+            this.refreshContactsForCurrentAccount();
+        }
+    }
+
+    /**
+     * Render chat header from the best locally available dialog/contact data.
+     * @param {string|number} entityId
+     * @param {string} title
+     */
+    renderChatHeader(entityId, title = '') {
+        const context = this._getCurrentChatContext(entityId);
+        const name = this._getChatHeaderName(context, title, entityId);
+        const photoUrl = context?.photo_url || '';
+        const colorIdx = Math.abs(this._hashCode(String(entityId || name || ''))) % 8;
+
+        const nameEl = document.getElementById('chat-header-name');
+        const statusEl = document.getElementById('chat-header-status');
+        const metaEl = document.getElementById('chat-header-meta');
+        const typeEl = document.getElementById('chat-header-type');
+        const presenceEl = document.getElementById('chat-header-presence');
+        const avatarEl = document.getElementById('chat-avatar');
+
+        if (nameEl) {
+            nameEl.textContent = name;
+        }
+
+        if (statusEl) {
+            statusEl.textContent = '';
+        }
+
+        if (metaEl) {
+            metaEl.textContent = this._getChatHeaderMeta(context, entityId);
+        }
+
+        if (typeEl) {
+            const typeLabel = this._getChatHeaderType(context);
+            typeEl.textContent = typeLabel;
+            typeEl.classList.toggle('hidden', !typeLabel);
+        }
+
+        if (presenceEl) {
+            presenceEl.textContent = '';
+            presenceEl.classList.add('hidden');
+        }
+
+        if (avatarEl) {
+            avatarEl.className = `avatar chat-header-avatar avatar-color-${colorIdx}${photoUrl ? ' has-photo' : ''}`;
+            if (photoUrl) {
+                avatarEl.innerHTML = `<img src="${this._escapeAttribute(photoUrl)}" alt="${this._escapeHtml(name)}">`;
+            } else {
+                avatarEl.innerHTML = '';
+                avatarEl.textContent = this.getInitials(name || '?');
+            }
+        }
     }
 
     /**
@@ -289,7 +445,7 @@ class ChatManager {
      * @param {number} limit
      */
     async loadHistory(sessionName, entityId, limit = 50) {
-        if (this.isLoadingHistory) return;
+        if (this.isLoadingHistory) return false;
         this.isLoadingHistory = true;
         this.hasMoreMessages = true;
         this.oldestMessageId = null;
@@ -307,7 +463,7 @@ class ChatManager {
 
         if (!data) {
             if (container) container.innerHTML = '<div class="empty-state">Failed to load messages</div>';
-            return;
+            return false;
         }
 
         const messages = Array.isArray(data) ? data : [];
@@ -323,6 +479,7 @@ class ChatManager {
 
         this.renderMessages(messages, false);
         this.scrollToBottom(false);
+        return true;
     }
 
     /**
@@ -335,7 +492,11 @@ class ChatManager {
         if (!container) return;
 
         if (messages.length === 0 && !append) {
-            container.innerHTML = '<div class="empty-state"><div class="empty-text">No messages yet</div></div>';
+            container.innerHTML = this.app.emptyStateHtml({
+                icon: 'MSG',
+                title: 'No messages yet',
+                text: 'Send a message or wait for incoming activity.'
+            });
             return;
         }
 
@@ -391,6 +552,9 @@ class ChatManager {
         const div = document.createElement('div');
         const isOutgoing = msg.is_outgoing;
         div.className = `message ${isOutgoing ? 'message-outgoing' : 'message-incoming'}`;
+        if (msg.send_status) {
+            div.classList.add(`message-${msg.send_status}`);
+        }
         div.dataset.messageId = msg.id;
 
         let senderHtml = '';
@@ -413,7 +577,7 @@ class ChatManager {
             ${textHtml}
             <div class="message-meta">
                 <span class="message-time">${this._escapeHtml(time)}</span>
-                ${this._renderReadStatusHtml(msg)}
+                ${this._renderDeliveryStatusHtml(msg)}
             </div>
         `;
 
@@ -461,6 +625,7 @@ class ChatManager {
             sender_name: 'You',
             is_outgoing: true,
             is_read: false,
+            send_status: 'sending',
             media_type: null,
             preview_text: text
         };
@@ -479,12 +644,12 @@ class ChatManager {
         });
 
         if (!data) {
-            // Remove optimistic message on failure
             const tempEl = container ? container.querySelector(`[data-message-id="${tempMsg.id}"]`) : null;
-            if (tempEl) tempEl.remove();
-            this.app.state.messages = (this.app.state.messages || []).filter(
-                message => String(message.id) !== String(tempMsg.id)
-            );
+            const failedMsg = { ...tempMsg, send_status: 'failed' };
+            if (tempEl) {
+                tempEl.replaceWith(this.renderMessage(failedMsg));
+            }
+            this._replaceStoredMessage(tempMsg.id, failedMsg);
             this.app.showToast('Failed to send message', 'error');
         } else {
             const tempEl = container ? container.querySelector(`[data-message-id="${tempMsg.id}"]`) : null;
@@ -599,6 +764,7 @@ class ChatManager {
         const input = document.getElementById('add-contact-input');
         const firstNameInput = document.getElementById('add-contact-first-name');
         const lastNameInput = document.getElementById('add-contact-last-name');
+        const helperEl = document.getElementById('add-contact-name-helper');
         const errorEl = document.getElementById('add-contact-error');
         const submitBtn = document.getElementById('btn-submit-add-contact');
 
@@ -615,6 +781,10 @@ class ChatManager {
         if (input) input.disabled = false;
         if (firstNameInput) firstNameInput.value = '';
         if (lastNameInput) lastNameInput.value = '';
+        if (helperEl) {
+            helperEl.textContent = 'Если имя или фамилия пустые, панель возьмет данные из Telegram-профиля.';
+        }
+        this._setContactModalStatus('', '');
         if (errorEl) {
             errorEl.textContent = '';
             errorEl.classList.add('hidden');
@@ -663,6 +833,7 @@ class ChatManager {
         const input = document.getElementById('add-contact-input');
         const firstNameInput = document.getElementById('add-contact-first-name');
         const lastNameInput = document.getElementById('add-contact-last-name');
+        const helperEl = document.getElementById('add-contact-name-helper');
         const errorEl = document.getElementById('add-contact-error');
         const submitBtn = document.getElementById('btn-submit-add-contact');
 
@@ -683,6 +854,12 @@ class ChatManager {
         }
         if (firstNameInput) firstNameInput.value = options.initialFirstName || '';
         if (lastNameInput) lastNameInput.value = options.initialLastName || '';
+        if (helperEl) {
+            helperEl.textContent = fallbackName
+                ? `Если оставить поля пустыми, будет сохранено имя из Telegram: "${fallbackName}".`
+                : 'Если имя или фамилия пустые, панель возьмет данные из Telegram-профиля.';
+        }
+        this._setContactModalStatus('', '');
         if (errorEl) {
             errorEl.textContent = '';
             errorEl.classList.add('hidden');
@@ -811,6 +988,7 @@ class ChatManager {
             if (context.mode !== 'entity' && !identifier && errorEl) {
                 errorEl.textContent = 'Enter @username or a phone number';
                 errorEl.classList.remove('hidden');
+                this._setContactModalStatus('Нужно указать @username или номер телефона.', 'error');
             }
             return;
         }
@@ -824,6 +1002,7 @@ class ChatManager {
             submitBtn.disabled = true;
             submitBtn.textContent = 'Saving...';
         }
+        this._setContactModalStatus('Saving contact...', 'loading');
 
         const payload = {
             first_name: firstName || null,
@@ -855,9 +1034,11 @@ class ChatManager {
                 errorEl.textContent = 'Could not save this contact';
                 errorEl.classList.remove('hidden');
             }
+            this._setContactModalStatus('Contact was not saved. Check the identifier and try again.', 'error');
             return;
         }
 
+        this._setContactModalStatus(data.message || 'Contact saved', 'success');
         this.app.hideModal('modal-add-contact');
         this.contactModalContext = null;
 
@@ -883,6 +1064,25 @@ class ChatManager {
 
         this.refreshContactsForCurrentAccount();
         this.app.showToast(data.message || 'Contact added', 'success');
+    }
+
+    /**
+     * Show an inline state inside the add/edit contact modal.
+     * @param {string} message
+     * @param {string} type
+     */
+    _setContactModalStatus(message, type = '') {
+        const statusEl = document.getElementById('add-contact-status');
+        if (!statusEl) return;
+
+        if (!message) {
+            statusEl.textContent = '';
+            statusEl.className = 'contact-action-status hidden';
+            return;
+        }
+
+        statusEl.textContent = message;
+        statusEl.className = `contact-action-status${type ? ` is-${type}` : ''}`;
     }
 
     /**
@@ -974,6 +1174,10 @@ class ChatManager {
                         this._replaceStoredMessage(msg.id, msg);
                     }
                 }
+
+                if (!msg.is_outgoing) {
+                    this.markChatReadIfNeeded(sessionName, chatId, 'new_message');
+                }
             }
 
             // Also update dialog preview
@@ -997,6 +1201,78 @@ class ChatManager {
         }
 
         this._markMessagesAsRead(chatId, maxId);
+    }
+
+    /**
+     * Mark the current chat as read when Ghost-mode allows it.
+     * @param {string} reason
+     * @returns {Promise<boolean>}
+     */
+    async markCurrentChatReadIfNeeded(reason = 'manual') {
+        return this.markChatReadIfNeeded(
+            this.app.state.currentAccount,
+            this.app.state.currentChat,
+            reason
+        );
+    }
+
+    /**
+     * Mark a chat as read unless Ghost-mode is enabled.
+     * @param {string} sessionName
+     * @param {string|number} entityId
+     * @param {string} reason
+     * @returns {Promise<boolean>}
+     */
+    async markChatReadIfNeeded(sessionName, entityId, reason = 'manual') {
+        if (this.app.state.ghostModeEnabled) {
+            return false;
+        }
+
+        return this.markChatAsRead(sessionName, entityId, reason);
+    }
+
+    /**
+     * Send Telegram read acknowledgement and clear local unread counters.
+     * @param {string} sessionName
+     * @param {string|number} entityId
+     * @param {string} reason
+     * @returns {Promise<boolean>}
+     */
+    async markChatAsRead(sessionName, entityId, reason = 'manual') {
+        if (!sessionName || !entityId) {
+            return false;
+        }
+
+        if (
+            String(this.app.state.currentAccount) !== String(sessionName)
+            || String(this.app.state.currentChat) !== String(entityId)
+        ) {
+            return false;
+        }
+
+        const requestKey = `${sessionName}:${entityId}`;
+        if (this.markReadRequests.has(requestKey)) {
+            return false;
+        }
+
+        this.markReadRequests.add(requestKey);
+
+        try {
+            const data = await this.app.api(
+                'POST',
+                `/api/messages/${encodeURIComponent(sessionName)}/read/${encodeURIComponent(entityId)}`
+            );
+
+            if (!data?.ok) {
+                return false;
+            }
+
+            this._clearUnreadForDialog(entityId);
+            console.log('[ChatManager] Marked chat as read:', sessionName, entityId, reason);
+            return true;
+        } finally {
+            this.markReadRequests.delete(requestKey);
+        }
     }
 
     /**
@@ -1217,7 +1493,13 @@ class ChatManager {
 
         if (!mediaUrl) {
             if (msg.media_type) {
-                return `<div class="message-media-badge">📎 ${this._escapeHtml(this._getMediaLabel(msg))}</div>`;
+                return `
+                    <div class="message-media message-media-card message-media-empty-card">
+                        <span class="message-media-type">Attachment</span>
+                        <div class="message-media-title">${this._escapeHtml(this._getMediaLabel(msg))}</div>
+                        <div class="message-media-caption">Preview is not available yet</div>
+                    </div>
+                `;
             }
             return '';
         }
@@ -1235,7 +1517,7 @@ class ChatManager {
             || this._isInlineRenderableImageMimeType(mimeType)
         ) {
             return `
-                <div class="message-media">
+                <div class="message-media message-media-photo-card">
                     <a class="message-media-link" href="${safeUrl}" target="_blank" rel="noopener">
                         <img class="message-photo" src="${safeUrl}" alt="${mediaLabel}" loading="lazy">
                     </a>
@@ -1246,9 +1528,12 @@ class ChatManager {
         if (mediaKind === 'audio' || mediaKind === 'voice') {
             const meta = [fileName, duration].filter(Boolean).join(' · ');
             return `
-                <div class="message-media">
+                <div class="message-media message-media-card message-media-audio-card">
+                    <div class="message-media-head">
+                        <span class="message-media-type">${mediaKind === 'voice' ? 'Voice' : 'Audio'}</span>
+                        ${meta ? `<span class="message-media-caption">${meta}</span>` : ''}
+                    </div>
                     <div class="message-media-title">${mediaLabel}</div>
-                    ${meta ? `<div class="message-media-caption">${meta}</div>` : ''}
                     <audio class="message-audio" controls preload="metadata" src="${safeUrl}"></audio>
                 </div>
             `;
@@ -1257,19 +1542,23 @@ class ChatManager {
         if (mediaKind === 'video' || (msg.mime_type || '').startsWith('video/')) {
             const meta = [fileName, duration].filter(Boolean).join(' · ');
             return `
-                <div class="message-media">
+                <div class="message-media message-media-video-card">
                     ${meta ? `<div class="message-media-caption">${meta}</div>` : ''}
                     <video class="message-video" controls preload="metadata" src="${safeUrl}"></video>
                 </div>
             `;
         }
 
-        const meta = [fileName, fileSize].filter(Boolean).join(' · ');
+        const mimeLabel = mimeType ? this._escapeHtml(mimeType) : '';
+        const meta = [fileSize, mimeLabel].filter(Boolean).join(' · ');
         return `
-            <div class="message-media">
+            <div class="message-media message-media-card message-media-file-card">
                 <a class="message-file-link" href="${safeUrl}" target="_blank" rel="noopener" download>
-                    <span class="message-file-icon">📎</span>
-                    <span>${meta || mediaLabel}</span>
+                    <span class="message-file-icon" aria-hidden="true"></span>
+                    <span class="message-file-body">
+                        <span class="message-file-title">${fileName || mediaLabel}</span>
+                        ${meta ? `<span class="message-file-meta">${meta}</span>` : ''}
+                    </span>
                 </a>
             </div>
         `;
@@ -1288,7 +1577,7 @@ class ChatManager {
         const userId = contact.user_id ? this._escapeHtml(String(contact.user_id)) : '';
 
         return `
-            <div class="message-media">
+            <div class="message-media message-media-card message-media-contact-card-wrap">
                 <button
                     type="button"
                     class="message-contact-card${contact.can_open ? ' is-clickable' : ''}"
@@ -1363,6 +1652,109 @@ class ChatManager {
     _getCurrentDialog() {
         const dialogs = Array.isArray(this.app.state.dialogs) ? this.app.state.dialogs : [];
         return dialogs.find(dialog => String(dialog.id) === String(this.app.state.currentChat)) || null;
+    }
+
+    /**
+     * Get current contact metadata from the loaded contacts list.
+     * @returns {object|null}
+     */
+    _getCurrentContact() {
+        const contacts = Array.isArray(this.app.state.contacts) ? this.app.state.contacts : [];
+        return contacts.find(contact => String(contact.id) === String(this.app.state.currentChat)) || null;
+    }
+
+    /**
+     * Get best known metadata for a selected chat.
+     * @param {string|number} entityId
+     * @returns {object|null}
+     */
+    _getCurrentChatContext(entityId = null) {
+        const targetId = entityId ?? this.app.state.currentChat;
+        const dialog = this._getCurrentDialog();
+        if (dialog && String(dialog.id) === String(targetId)) {
+            return dialog;
+        }
+
+        const contact = this._getCurrentContact();
+        if (contact && String(contact.id) === String(targetId)) {
+            return contact;
+        }
+
+        return null;
+    }
+
+    /**
+     * Build display name for the chat header.
+     * @param {object|null} context
+     * @param {string} title
+     * @param {string|number} entityId
+     * @returns {string}
+     */
+    _getChatHeaderName(context, title, entityId) {
+        return title
+            || context?.name
+            || context?.display_name
+            || [context?.first_name, context?.last_name].filter(Boolean).join(' ')
+            || context?.username
+            || `Chat ${entityId || ''}`.trim()
+            || 'Chat';
+    }
+
+    /**
+     * Build compact metadata for the chat header subtitle.
+     * @param {object|null} context
+     * @param {string|number} entityId
+     * @returns {string}
+     */
+    _getChatHeaderMeta(context, entityId) {
+        const parts = [];
+        const username = context?.username ? `@${context.username}` : '';
+        const typeLabel = this._getChatHeaderType(context) || 'Private';
+
+        if (username) {
+            parts.push(username);
+        }
+
+        parts.push(typeLabel === 'Private' ? 'Private chat' : typeLabel);
+
+        if (!username && entityId) {
+            parts.push(`ID ${entityId}`);
+        }
+
+        return parts.join(' · ');
+    }
+
+    /**
+     * Return the short chat type label used in the header.
+     * @param {object|null} context
+     * @returns {string}
+     */
+    _getChatHeaderType(context) {
+        if (context?.is_channel) return 'Channel';
+        if (context?.is_group) return 'Group';
+        if (context?.is_bot) return 'Bot';
+        return 'Private';
+    }
+
+    /**
+     * Render delivery status for outgoing messages.
+     * @param {object} msg
+     * @returns {string}
+     */
+    _renderDeliveryStatusHtml(msg) {
+        if (!msg?.is_outgoing) {
+            return '';
+        }
+
+        if (msg.send_status === 'sending') {
+            return '<span class="message-send-state is-sending" title="Sending" aria-label="Sending">sending</span>';
+        }
+
+        if (msg.send_status === 'failed') {
+            return '<span class="message-send-state is-failed" title="Failed to send" aria-label="Failed to send">failed</span>';
+        }
+
+        return this._renderReadStatusHtml(msg);
     }
 
     /**
@@ -1499,6 +1891,45 @@ class ChatManager {
         const dialogs = Array.isArray(this.app.state.dialogs) ? this.app.state.dialogs : [];
         this.app.state.dialogs = dialogs.filter(dialog => String(dialog.id) !== String(entityId));
         this.renderDialogs(this.app.state.dialogs);
+    }
+
+    /**
+     * Clear unread badge for a dialog in local state and DOM.
+     * @param {string|number} entityId
+     */
+    _clearUnreadForDialog(entityId) {
+        const dialogs = Array.isArray(this.app.state.dialogs) ? this.app.state.dialogs : [];
+        let changed = false;
+
+        const updatedDialogs = dialogs.map(dialog => {
+            if (String(dialog.id) !== String(entityId)) {
+                return dialog;
+            }
+
+            if (!dialog.unread_count) {
+                return dialog;
+            }
+
+            changed = true;
+            return { ...dialog, unread_count: 0 };
+        });
+
+        if (changed) {
+            this.app.state.dialogs = updatedDialogs;
+            this.renderDialogs(updatedDialogs);
+            return;
+        }
+
+        document.querySelectorAll('.dialog-item').forEach(item => {
+            if (String(item.dataset.entityId) !== String(entityId)) {
+                return;
+            }
+
+            const unreadBadge = item.querySelector('.dialog-unread');
+            if (unreadBadge) {
+                unreadBadge.remove();
+            }
+        });
     }
 
     /**
@@ -1654,6 +2085,37 @@ class ChatManager {
     _truncate(text, maxLen) {
         if (!text) return '';
         return text.length > maxLen ? text.substring(0, maxLen) + '…' : text;
+    }
+
+    /**
+     * Get a small chat type label for the sidebar.
+     * @param {object} dialog
+     * @returns {string}
+     */
+    _getDialogTypeLabel(dialog) {
+        if (dialog?.is_channel) return 'Channel';
+        if (dialog?.is_group) return 'Group';
+        return '';
+    }
+
+    /**
+     * Extract media badge from preview text like "[Photo]".
+     * @param {string} preview
+     * @returns {string}
+     */
+    _getDialogPreviewBadge(preview) {
+        const match = String(preview || '').match(/^\[([^\]]+)\]/);
+        return match ? match[1] : '';
+    }
+
+    /**
+     * Remove leading media marker from a dialog preview.
+     * @param {string} preview
+     * @returns {string}
+     */
+    _cleanDialogPreview(preview) {
+        const cleaned = String(preview || '').replace(/^\[[^\]]+\]\s*/, '').trim();
+        return cleaned || preview || 'No preview';
     }
 
     /**

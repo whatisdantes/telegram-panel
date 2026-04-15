@@ -34,7 +34,13 @@ class AccountManager {
 
         const data = await this.app.api('GET', '/api/accounts/');
         if (!data) {
-            if (listEl) listEl.innerHTML = '<div class="empty-state">Failed to load accounts</div>';
+            if (listEl) {
+                listEl.innerHTML = this.app.emptyStateHtml({
+                    icon: '!',
+                    title: 'Failed to load accounts',
+                    text: 'Check logs and refresh the account list.'
+                });
+            }
             this._updateSummary([]);
             return;
         }
@@ -65,9 +71,14 @@ class AccountManager {
         const filteredAccounts = this._filterAccounts(this._sortAccounts(accounts || []));
         this._applyBrowserState();
         this._updateSummary(accounts || []);
+        listEl.classList.toggle('account-list-compact', (accounts || []).length >= 8);
 
         if ((accounts || []).length === 0) {
-            listEl.innerHTML = '<div class="empty-state">No accounts found.<br><small>Add .session files to accounts/ directory</small></div>';
+            listEl.innerHTML = this.app.emptyStateHtml({
+                icon: 'AC',
+                title: 'No accounts found',
+                text: 'Add .session files to accounts/ and refresh the panel.'
+            });
             return;
         }
 
@@ -98,6 +109,7 @@ class AccountManager {
         const status = account.status || 'disconnected';
         const displayName = this._getDisplayName(account);
         const statusText = this._formatStatusText(status, account.error_msg);
+        const metaText = this._getAccountMeta(account);
 
         item.innerHTML = `
             <div class="account-avatar-wrap">
@@ -105,7 +117,11 @@ class AccountManager {
                 <div class="account-status-dot account-status-dot-overlay status-${status}"></div>
             </div>
             <div class="account-info">
-                <div class="account-name">${this._escapeHtml(displayName)}</div>
+                <div class="account-top-row">
+                    <div class="account-name">${this._escapeHtml(displayName)}</div>
+                    <div class="account-status-pill account-status-pill-${status}">${this._escapeHtml(this._getStatusShortLabel(status))}</div>
+                </div>
+                <div class="account-meta-line">${this._escapeHtml(metaText)}</div>
                 <div class="account-status-text">${this._escapeHtml(statusText)}</div>
             </div>
             <div class="account-actions">
@@ -263,6 +279,8 @@ class AccountManager {
         const body = document.getElementById('account-info-body');
         const titleEl = document.getElementById('account-info-title');
         const primaryBtn = document.getElementById('btn-account-info-primary');
+        const openChatBtn = document.getElementById('btn-account-info-open-chat');
+        const deleteChatBtn = document.getElementById('btn-account-info-delete-chat');
         this.app.showLoading(body);
         if (titleEl) titleEl.textContent = 'Account Details';
         if (primaryBtn) {
@@ -270,6 +288,8 @@ class AccountManager {
             primaryBtn.disabled = false;
             primaryBtn.textContent = '';
         }
+        if (openChatBtn) openChatBtn.classList.add('hidden');
+        if (deleteChatBtn) deleteChatBtn.classList.add('hidden');
 
         const data = await this.app.api('GET', `/api/accounts/${encodeURIComponent(sessionName)}/me`);
 
@@ -474,12 +494,20 @@ class AccountManager {
 
         const dialogList = document.getElementById('dialog-list');
         if (dialogList) {
-            dialogList.innerHTML = '<div class="empty-state">Select an account</div>';
+            dialogList.innerHTML = this.app.emptyStateHtml({
+                icon: 'AC',
+                title: 'Select an account',
+                text: 'Chats will load after account selection.'
+            });
         }
 
         const contactList = document.getElementById('contact-list');
         if (contactList) {
-            contactList.innerHTML = '<div class="empty-state">Select an account</div>';
+            contactList.innerHTML = this.app.emptyStateHtml({
+                icon: 'CO',
+                title: 'Select an account',
+                text: 'Contacts will load after account selection.'
+            });
         }
     }
 
@@ -571,6 +599,45 @@ class AccountManager {
             error: errorMsg ? `Error: ${errorMsg}` : 'Error'
         };
         return labels[status] || status;
+    }
+
+    /**
+     * Short label for compact account status pills.
+     * @param {string} status
+     * @returns {string}
+     */
+    _getStatusShortLabel(status) {
+        const labels = {
+            connected: 'ON',
+            disconnected: 'OFF',
+            unauthorized: 'AUTH',
+            frozen: 'FRZ',
+            temporary_spamblock: 'SB',
+            permanent_spamblock: 'SB+',
+            invalid_session: 'BAD',
+            reconnecting: 'SYNC',
+            error: 'ERR'
+        };
+        return labels[status] || String(status || '').slice(0, 4).toUpperCase();
+    }
+
+    /**
+     * Build a compact account metadata line.
+     * @param {object} account
+     * @returns {string}
+     */
+    _getAccountMeta(account) {
+        const parts = [];
+
+        if (account.phone && account.phone !== account.session_name) {
+            parts.push(account.phone);
+        }
+
+        if (account.session_name) {
+            parts.push(account.session_name);
+        }
+
+        return parts.join(' · ') || 'Telegram session';
     }
 
     /**

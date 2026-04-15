@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Panel</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="theme-dark">
+    <div id="ui-background-layer" class="hidden"></div>
+    <div id="app">
+        <!-- Sidebar -->
+        <aside id="sidebar">
+            <div id="sidebar-header">
+                <div class="sidebar-title">
+                    <span class="logo-icon">✈</span>
+                    <h1>Telegram Panel</h1>
+                </div>
+                <button id="btn-profile" class="icon-btn" title="Profile &amp; Settings">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg>
+                </button>
+            </div>
+
+            <!-- Dialog List -->
+            <div id="dialog-section">
+                <div class="section-header">
+                    <div class="sidebar-switcher" role="tablist" aria-label="Sidebar view">
+                        <button id="btn-sidebar-dialogs" class="sidebar-tab active" type="button" aria-selected="true">Chats</button>
+                        <button id="btn-sidebar-contacts" class="sidebar-tab" type="button" aria-selected="false">Contacts</button>
+                    </div>
+                    <div class="section-actions">
+                        <button id="btn-new-dialog" class="icon-btn small" title="New Chat">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12zM11 5h2v4h4v2h-4v4h-2v-4H7V9h4V5z"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div id="dialog-list" class="item-list">
+                    <div class="empty-state">Select an account</div>
+                </div>
+                <div id="contact-toolbar" class="hidden">
+                    <button id="btn-add-contact" class="btn btn-secondary btn-small" type="button">Добавить новый контакт</button>
+                </div>
+                <div id="contact-list" class="item-list hidden">
+                    <div class="empty-state">Select an account</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main id="main-area">
+            <!-- Chat Header -->
+            <header id="chat-header" class="hidden">
+                <div id="chat-profile-trigger" class="chat-header-info">
+                    <div class="avatar" id="chat-avatar"></div>
+                    <div class="chat-header-text">
+                        <div class="chat-header-name-row">
+                            <div class="chat-header-name" id="chat-header-name"></div>
+                            <div class="chat-header-presence hidden" id="chat-header-presence"></div>
+                        </div>
+                        <div class="chat-header-status" id="chat-header-status"></div>
+                    </div>
+                </div>
+                <div class="chat-header-actions">
+                    <button id="btn-delete-chat" class="icon-btn danger-btn hidden" title="Delete Chat for Both">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 7h12l-1 14H7L6 7zm3-4h6l1 2h4v2H4V5h4l1-2z"/></svg>
+                    </button>
+                    <button id="btn-chat-user-info" class="icon-btn" title="User Info">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Messages Area -->
+            <div id="messages-area">
+                <div class="empty-state" id="messages-empty">
+                    <div class="empty-icon">💬</div>
+                    <div class="empty-text">Select a chat to start messaging</div>
+                </div>
+                <div id="messages-container" class="hidden"></div>
+                <div id="messages-loading" class="loading-spinner hidden">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+
+            <!-- Input Bar -->
+            <div id="input-bar" class="hidden">
+                <div class="input-wrapper">
+                    <textarea id="message-input" placeholder="Write a message..." rows="1"></textarea>
+                    <button id="btn-send" class="send-btn" title="Send">
+                        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <!-- Accounts Panel -->
+        <aside id="accounts-panel">
+            <div id="account-section">
+                <div class="section-header">
+                    <div class="section-heading">
+                        <h2>Accounts</h2>
+                        <span id="account-count-badge" class="section-badge hidden">0</span>
+                    </div>
+                    <div class="section-actions">
+                        <button id="btn-refresh-accounts" class="icon-btn small" title="Refresh">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17.65 6.35A7.96 7.96 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div id="account-summary" class="account-summary-card">
+                    <div class="account-summary-main">
+                        <div id="account-summary-avatar" class="account-avatar-wrap">
+                            <div class="avatar account-avatar avatar-color-0" id="account-summary-avatar-image">?</div>
+                            <div id="account-summary-dot" class="account-status-dot account-status-dot-overlay status-disconnected"></div>
+                        </div>
+                        <div class="account-summary-info">
+                            <div id="account-summary-name">No account selected</div>
+                            <div id="account-summary-meta">Loading accounts...</div>
+                        </div>
+                    </div>
+                </div>
+                <div id="account-browser" class="account-browser">
+                    <div class="account-search-wrap">
+                        <input type="text" id="account-search" placeholder="Find account" autocomplete="off">
+                    </div>
+                    <div id="account-list" class="item-list">
+                        <div class="empty-state">Loading accounts...</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Modal: New Dialog -->
+    <div id="modal-new-dialog" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Open New Chat</h3>
+                <button class="modal-close icon-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="new-dialog-input">Username, phone, or user ID</label>
+                    <input type="text" id="new-dialog-input" placeholder="@username or +1234567890 or 12345678" autocomplete="off">
+                </div>
+                <div id="new-dialog-result" class="hidden">
+                    <div class="resolved-user">
+                        <div class="avatar" id="resolved-avatar"></div>
+                        <div class="resolved-info">
+                            <div class="resolved-name" id="resolved-name"></div>
+                            <div class="resolved-username" id="resolved-username"></div>
+                        </div>
+                    </div>
+                </div>
+                <div id="new-dialog-error" class="form-error hidden"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-resolve-entity" class="btn btn-primary">Find User</button>
+                <button id="btn-add-resolved-contact" class="btn btn-secondary hidden">Add to contact</button>
+                <button id="btn-open-resolved-chat" class="btn btn-success hidden">Open Chat</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Add Contact -->
+    <div id="modal-add-contact" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="add-contact-modal-title">Добавить новый контакт</h3>
+                <button class="modal-close icon-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="add-contact-target-note" class="info-note hidden"></div>
+                <div id="add-contact-identifier-group" class="form-group">
+                    <label for="add-contact-input">@username или номер телефона</label>
+                    <input type="text" id="add-contact-input" placeholder="@username or 79991234567" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="add-contact-first-name">Имя</label>
+                    <input type="text" id="add-contact-first-name" placeholder="Оставьте пустым, чтобы взять имя из Telegram" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="add-contact-last-name">Фамилия</label>
+                    <input type="text" id="add-contact-last-name" placeholder="Оставьте пустым, чтобы взять фамилию из Telegram" autocomplete="off">
+                </div>
+                <div id="add-contact-error" class="form-error hidden"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-submit-add-contact" class="btn btn-primary" type="button">Add Contact</button>
+                <button class="btn btn-secondary modal-close-btn" type="button">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Profile Editor -->
+    <div id="modal-profile" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Edit Profile</h3>
+                <button class="modal-close icon-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="profile-avatar-section">
+                    <div class="avatar large" id="profile-avatar"></div>
+                    <div class="profile-avatar-actions">
+                        <label class="btn btn-small btn-primary" id="btn-upload-avatar-label">
+                            Upload Photo
+                            <input type="file" id="input-avatar-upload" accept="image/*" hidden>
+                        </label>
+                        <label class="btn btn-small btn-secondary" id="btn-upload-avatar-queue-label">
+                            Queue Photos
+                            <input type="file" id="input-avatar-upload-queue" accept="image/*" multiple hidden>
+                        </label>
+                        <button id="btn-delete-avatar" class="btn btn-small btn-danger">Remove All Photos</button>
+                    </div>
+                </div>
+                <div id="profile-avatar-queue" class="profile-avatar-queue hidden">
+                    <div class="profile-avatar-queue-header">
+                        <div class="profile-avatar-queue-title">Queued Profile Photos</div>
+                        <button id="btn-clear-avatar-queue" class="btn btn-small btn-secondary" type="button">Clear Queue</button>
+                    </div>
+                    <div id="profile-avatar-upload-status" class="profile-avatar-upload-status hidden">
+                        <div class="profile-avatar-upload-top">
+                            <div id="profile-avatar-upload-message" class="profile-avatar-upload-message"></div>
+                            <div id="profile-avatar-upload-count" class="profile-avatar-upload-count"></div>
+                        </div>
+                        <div class="profile-avatar-upload-bar">
+                            <div id="profile-avatar-upload-bar-fill" class="profile-avatar-upload-bar-fill"></div>
+                        </div>
+                        <div id="profile-avatar-upload-file" class="profile-avatar-upload-file"></div>
+                    </div>
+                    <div id="profile-avatar-queue-list" class="profile-avatar-queue-list"></div>
+                    <button id="btn-upload-avatar-queue" class="btn btn-primary" type="button">Upload queued photos</button>
+                </div>
+                <div class="form-group">
+                    <label for="profile-first-name">First Name</label>
+                    <input type="text" id="profile-first-name" placeholder="First Name">
+                </div>
+                <div class="form-group">
+                    <label for="profile-last-name">Last Name</label>
+                    <input type="text" id="profile-last-name" placeholder="Last Name">
+                </div>
+                <div class="form-group">
+                    <label for="profile-username">Username</label>
+                    <input type="text" id="profile-username" placeholder="username">
+                </div>
+                <div class="form-group">
+                    <label for="profile-phone">Phone</label>
+                    <input type="text" id="profile-phone" disabled placeholder="Phone number">
+                </div>
+                <div class="profile-section">
+                    <div class="profile-section-header">
+                        <h4>Privacy</h4>
+                        <span class="profile-section-caption">Base visibility rules</span>
+                    </div>
+                    <div id="profile-privacy-settings" class="privacy-settings hidden"></div>
+                </div>
+                <div id="profile-privacy-note" class="info-note hidden"></div>
+                <div id="profile-error" class="form-error hidden"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-save-profile" class="btn btn-primary">Save Changes</button>
+                <button id="btn-cancel-profile" class="btn btn-secondary modal-close-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Account Info -->
+    <div id="modal-account-info" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="account-info-title">Account Details</h3>
+                <button class="modal-close icon-btn">&times;</button>
+            </div>
+            <div class="modal-body" id="account-info-body">
+                <div class="loading-spinner"><div class="spinner"></div></div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-account-info-primary" class="btn btn-primary hidden"></button>
+                <button class="btn btn-secondary modal-close-btn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Interface Customization -->
+    <div id="modal-customization" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content customization-modal">
+            <div class="modal-header">
+                <h3>Customize Interface</h3>
+                <button class="modal-close icon-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="customization-section">
+                    <div class="customization-section-header">
+                        <h4>Theme</h4>
+                        <span>Switch between light and dark</span>
+                    </div>
+                    <div class="theme-picker" role="radiogroup" aria-label="Theme picker">
+                        <button id="btn-theme-dark" class="theme-option" type="button" data-theme-option="dark" aria-pressed="true">
+                            <span class="theme-option-preview theme-option-preview-dark"></span>
+                            <span class="theme-option-label">Dark</span>
+                        </button>
+                        <button id="btn-theme-light" class="theme-option" type="button" data-theme-option="light" aria-pressed="false">
+                            <span class="theme-option-preview theme-option-preview-light"></span>
+                            <span class="theme-option-label">Light</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="customization-section">
+                    <div class="customization-section-header">
+                        <h4>Background</h4>
+                        <span>PNG, JPG, or MP4 for the whole interface</span>
+                    </div>
+                    <div id="customization-background-preview" class="customization-background-preview">
+                        <div class="customization-background-empty">No background selected</div>
+                    </div>
+                    <div class="customization-background-meta">
+                        <div id="customization-background-name">Nothing uploaded yet</div>
+                        <div class="customization-background-note">PNG/JPG are optimized for the current browser size. MP4 backgrounds are fitted to the interface and play muted.</div>
+                    </div>
+                    <div class="customization-background-actions">
+                        <label class="btn btn-primary" id="btn-customization-background-label">
+                            Choose Media
+                            <input
+                                type="file"
+                                id="input-customization-background"
+                                accept=".png,.jpg,.jpeg,.mp4,image/png,image/jpeg,video/mp4"
+                                hidden
+                            >
+                        </label>
+                        <button id="btn-remove-customization-background" class="btn btn-secondary" type="button">Remove Background</button>
+                    </div>
+                </div>
+                <div id="customization-error" class="form-error hidden"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-save-customization" class="btn btn-primary" type="button">Save Changes</button>
+                <button class="btn btn-secondary modal-close-btn" type="button">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <button id="btn-customization" class="floating-customization-btn" type="button" title="Customize interface">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 4l6 6"></path>
+            <path d="M12.5 5.5l6 6"></path>
+            <path d="M5 19l3.8-.9L18 8.9l-3-3L5.9 15.1 5 19z"></path>
+            <path d="M4.8 19.2c.7-.2 1.4-.1 2 .3.6.4 1 .9 1.2 1.7"></path>
+            <path d="M6.8 14.2l3 3"></path>
+        </svg>
+    </button>
+
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <!-- Connection Status Indicator -->
+    <div id="ws-status" class="ws-status" title="WebSocket disconnected">
+        <span class="ws-dot"></span>
+    </div>
+
+    <script src="/static/js/ws.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/accounts.js"></script>
+    <script src="/static/js/chat.js"></script>
+    <script src="/static/js/profile.js"></script>
+    <script src="/static/js/customization.js"></script>
+</body>
+</html>

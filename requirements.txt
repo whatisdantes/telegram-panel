@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+telethon
+python-dotenv
+pydantic
+pydantic-settings
+python-multipart
+aiofiles
+cryptg
+Pillow

@@ -32,6 +32,7 @@ from app.telegram.client_manager import TelegramClientManager
 from app.telegram.error_map import (
     format_flood_wait_error,
     humanize_error,
+    humanize_exception,
     humanize_rpc_error,
 )
 from app.telegram.utils import (
@@ -70,6 +71,11 @@ def _flood_wait_exception(exc: FloodWaitError) -> HTTPException:
         detail=format_flood_wait_error(exc),
         headers={"Retry-After": str(exc.seconds)},
     )
+
+
+def _unexpected_exception(exc: Exception, fallback: str) -> HTTPException:
+    """Return a safe HTTPException while preserving known Telethon explanations."""
+    return HTTPException(status_code=500, detail=humanize_exception(exc, fallback))
 
 
 def _looks_like_phone_identifier(identifier: str) -> bool:
@@ -359,7 +365,7 @@ async def list_dialogs(
         raise HTTPException(status_code=500, detail=humanize_rpc_error(e))
     except Exception as e:
         logger.exception("Error listing dialogs for %s", session_name)
-        raise HTTPException(status_code=500, detail="Failed to list dialogs.")
+        raise _unexpected_exception(e, "Failed to list dialogs.")
 
 
 @router.get("/{session_name}/contacts")
@@ -399,9 +405,9 @@ async def list_contacts(session_name: str) -> list[dict[str, Any]]:
         raise _flood_wait_exception(exc)
     except RPCError as exc:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Error listing contacts for %s", session_name)
-        raise HTTPException(status_code=500, detail="Failed to list contacts.")
+        raise _unexpected_exception(exc, "Failed to list contacts.")
 
 
 @router.delete("/{session_name}/contacts/{entity_id}")
@@ -440,9 +446,9 @@ async def delete_contact(session_name: str, entity_id: int) -> dict[str, Any]:
         raise _flood_wait_exception(exc)
     except RPCError as exc:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Error deleting contact %s for %s", entity_id, session_name)
-        raise HTTPException(status_code=500, detail="Failed to delete contact.")
+        raise _unexpected_exception(exc, "Failed to delete contact.")
 
 
 @router.get("/{session_name}/history/{entity_id}")
@@ -492,7 +498,7 @@ async def get_message_history(
         raise HTTPException(status_code=500, detail=humanize_rpc_error(e))
     except Exception as e:
         logger.exception("Error getting history for %s in %s", entity_id, session_name)
-        raise HTTPException(status_code=500, detail="Failed to get message history.")
+        raise _unexpected_exception(e, "Failed to get message history.")
 
 
 @router.post("/{session_name}/read/{entity_id}")
@@ -518,9 +524,9 @@ async def mark_dialog_read(session_name: str, entity_id: int) -> dict[str, Any]:
         raise _flood_wait_exception(exc)
     except RPCError as exc:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Error marking dialog %s as read for %s", entity_id, session_name)
-        raise HTTPException(status_code=500, detail="Failed to mark chat as read.")
+        raise _unexpected_exception(exc, "Failed to mark chat as read.")
 
 
 @router.delete("/{session_name}/dialog/{entity_id}")
@@ -554,9 +560,9 @@ async def delete_dialog(session_name: str, entity_id: int) -> dict[str, Any]:
         raise _flood_wait_exception(exc)
     except RPCError as exc:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Error deleting dialog %s for %s", entity_id, session_name)
-        raise HTTPException(status_code=500, detail="Failed to delete chat.")
+        raise _unexpected_exception(exc, "Failed to delete chat.")
 
 
 @router.post("/{session_name}/send")
@@ -594,7 +600,7 @@ async def send_message(session_name: str, request: SendMessageRequest) -> dict[s
         raise HTTPException(status_code=500, detail=humanize_rpc_error(e))
     except Exception as e:
         logger.exception("Error sending message from %s", session_name)
-        raise HTTPException(status_code=500, detail="Failed to send message.")
+        raise _unexpected_exception(e, "Failed to send message.")
 
 
 @router.post("/{session_name}/resolve")
@@ -617,7 +623,7 @@ async def resolve_target(session_name: str, request: OpenDialogRequest) -> dict[
         raise HTTPException(status_code=500, detail=humanize_rpc_error(e))
     except Exception as e:
         logger.exception("Error resolving entity for %s", session_name)
-        raise HTTPException(status_code=500, detail="Failed to resolve entity.")
+        raise _unexpected_exception(e, "Failed to resolve entity.")
 
 
 @router.post("/{session_name}/contacts")
@@ -683,9 +689,9 @@ async def add_contact_by_identifier(
         raise _flood_wait_exception(exc)
     except RPCError as exc:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Error adding contact by identifier for %s: %s", session_name, identifier)
-        raise HTTPException(status_code=500, detail="Failed to add contact.")
+        raise _unexpected_exception(exc, "Failed to add contact.")
 
 
 @router.get("/{session_name}/user/{entity_id}")
@@ -723,7 +729,7 @@ async def get_user_details(session_name: str, entity_id: int) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(e))
     except Exception as e:
         logger.exception("Error getting user %s for %s", entity_id, session_name)
-        raise HTTPException(status_code=500, detail="Failed to get user info.")
+        raise _unexpected_exception(e, "Failed to get user info.")
 
 
 @router.post("/{session_name}/user/{entity_id}/contact")
@@ -779,9 +785,9 @@ async def add_user_to_contacts(
         raise _flood_wait_exception(exc)
     except RPCError as exc:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Error adding user %s to contacts for %s", entity_id, session_name)
-        raise HTTPException(status_code=500, detail="Failed to add user to contacts.")
+        raise _unexpected_exception(exc, "Failed to add user to contacts.")
 
 
 @router.get("/{session_name}/user/{entity_id}/avatar")
@@ -811,9 +817,9 @@ async def get_user_avatar(session_name: str, entity_id: int):
         raise _flood_wait_exception(exc)
     except RPCError as exc:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Error loading avatar for entity %s (%s)", entity_id, session_name)
-        raise HTTPException(status_code=500, detail="Failed to load profile photo.")
+        raise _unexpected_exception(exc, "Failed to load profile photo.")
 
 
 @router.get("/{session_name}/media/{entity_id}/{message_id}")
@@ -854,11 +860,11 @@ async def get_message_media(session_name: str, entity_id: int, message_id: int):
         raise _flood_wait_exception(exc)
     except RPCError as exc:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "Error loading media for message %s in chat %s (%s)",
             message_id,
             entity_id,
             session_name,
         )
-        raise HTTPException(status_code=500, detail="Failed to load media.")
+        raise _unexpected_exception(exc, "Failed to load media.")

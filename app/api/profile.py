@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import logging
+import glob
+import mimetypes
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -23,10 +27,11 @@ from telethon.tl.functions.photos import DeletePhotosRequest, UploadProfilePhoto
 from app.api.ws import ws_manager
 from app.models.schemas import PrivacySettingsRequest, ProfileUpdateRequest
 from app.telegram.client_manager import TelegramClientManager
-from app.telegram.error_map import format_flood_wait_error, humanize_rpc_error
+from app.telegram.error_map import format_flood_wait_error, humanize_exception, humanize_rpc_error
 from app.telegram.utils import (
     build_own_avatar_url,
     ensure_entity_avatar_downloaded,
+    get_avatar_cache_dir,
     get_entity_photo_version,
 )
 
@@ -111,9 +116,67 @@ def _flood_wait_exception(exc: FloodWaitError) -> HTTPException:
     )
 
 
+def _unexpected_exception(exc: Exception, fallback: str) -> HTTPException:
+    """Return a safe HTTPException while preserving known Telethon explanations."""
+    return HTTPException(status_code=500, detail=humanize_exception(exc, fallback))
+
+
 def _build_self_avatar_cache_key(entity) -> str:
     """Build a cache key for the current account avatar."""
     return f"self_{get_entity_photo_version(entity) or 'current'}"
+
+
+def _sanitize_cache_part(value: object) -> str:
+    """Return a safe filesystem path segment for cached profile photos."""
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value)).strip("._")
+    return sanitized or "unknown"
+
+
+def _get_profile_photo_cache_dir(session_name: str) -> str:
+    """Return the cache directory for full profile-photo previews."""
+    cache_dir = os.path.join(
+        get_avatar_cache_dir(),
+        _sanitize_cache_part(session_name),
+        "profile_photos",
+    )
+    os.makedirs(cache_dir, exist_ok=True)
+    return cache_dir
+
+
+def _find_cached_profile_photo(session_name: str, photo_id: object) -> str | None:
+    """Find a cached profile-photo preview by Telegram photo id."""
+    cache_dir = _get_profile_photo_cache_dir(session_name)
+    safe_id = _sanitize_cache_part(photo_id)
+    candidates = sorted(
+        candidate
+        for candidate in glob.glob(os.path.join(cache_dir, f"{safe_id}*"))
+        if os.path.basename(candidate) == safe_id
+        or os.path.basename(candidate).startswith(f"{safe_id}.")
+    )
+    return candidates[0] if candidates else None
+
+
+def _profile_photo_url(session_name: str, photo_id: object) -> str:
+    """Build a browser URL for a cached full profile-photo preview."""
+    safe_id = _sanitize_cache_part(photo_id)
+    return f"/api/profile/{quote(session_name, safe='')}/avatar/photo/{safe_id}?v={safe_id}"
+
+
+async def _ensure_profile_photo_cached(client, session_name: str, photo) -> str:
+    """Download one profile photo to cache and return its local path."""
+    photo_id = getattr(photo, "id", None)
+    if photo_id is None:
+        raise ValueError("Profile photo id is unavailable.")
+
+    cached = _find_cached_profile_photo(session_name, photo_id)
+    if cached:
+        return cached
+
+    target_path = os.path.join(_get_profile_photo_cache_dir(session_name), _sanitize_cache_part(photo_id))
+    file_path = await client.download_media(photo, file=target_path)
+    if not file_path:
+        raise ValueError("Failed to download profile photo.")
+    return file_path
 
 
 def _sync_managed_avatar(session_name: str, entity) -> None:
@@ -393,9 +456,9 @@ async def update_profile(session_name: str, request: ProfileUpdateRequest) -> di
         raise _flood_wait_exception(exc)
     except RPCError as exc:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Error updating profile for %s", session_name)
-        raise HTTPException(status_code=500, detail="Failed to update profile.")
+        raise _unexpected_exception(exc, "Failed to update profile.")
 
 
 @router.get("/{session_name}/avatar")
@@ -425,9 +488,76 @@ async def get_own_avatar(session_name: str):
         raise _flood_wait_exception(exc)
     except RPCError as exc:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Error loading own avatar for %s", session_name)
-        raise HTTPException(status_code=500, detail="Failed to load profile photo.")
+        raise _unexpected_exception(exc, "Failed to load profile photo.")
+
+
+@router.get("/{session_name}/avatar/photos")
+async def list_profile_photos(session_name: str) -> dict[str, Any]:
+    """Return the current account profile photos in Telegram order."""
+    client = _require_client(session_name)
+
+    try:
+        me = await client.get_me()
+        photos = await client.get_profile_photos(me, limit=None)
+        result = []
+
+        for index, photo in enumerate(photos, start=1):
+            photo_id = getattr(photo, "id", None)
+            if photo_id is None:
+                continue
+
+            try:
+                file_path = await _ensure_profile_photo_cached(client, session_name, photo)
+            except Exception:
+                logger.warning(
+                    "Could not cache profile photo for %s: photo_id=%s",
+                    session_name,
+                    photo_id,
+                    exc_info=True,
+                )
+                continue
+
+            result.append(
+                {
+                    "id": str(photo_id),
+                    "index": index,
+                    "url": _profile_photo_url(session_name, photo_id),
+                    "date": photo.date.isoformat() if getattr(photo, "date", None) else "",
+                    "size": os.path.getsize(file_path) if os.path.exists(file_path) else None,
+                    "is_current": index == 1,
+                }
+            )
+
+        logger.info("Loaded profile photo list for %s: %d photo(s)", session_name, len(result))
+        return {"photos": result, "count": len(result)}
+
+    except FloodWaitError as exc:
+        raise _flood_wait_exception(exc)
+    except RPCError as exc:
+        raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
+    except Exception as exc:
+        logger.exception("Error listing profile photos for %s", session_name)
+        raise _unexpected_exception(exc, "Failed to load profile photos.")
+
+
+@router.get("/{session_name}/avatar/photo/{photo_id}")
+async def get_profile_photo_preview(session_name: str, photo_id: str):
+    """Serve a cached full profile-photo preview."""
+    try:
+        cached = _find_cached_profile_photo(session_name, photo_id)
+        if not cached:
+            raise HTTPException(status_code=404, detail="Profile photo preview not found.")
+
+        media_type = mimetypes.guess_type(cached)[0] or "image/jpeg"
+        return FileResponse(cached, media_type=media_type, content_disposition_type="inline")
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Error serving profile photo preview for %s: %s", session_name, photo_id)
+        raise _unexpected_exception(exc, "Failed to load profile photo preview.")
 
 
 @router.post("/{session_name}/avatar")
@@ -458,9 +588,9 @@ async def upload_avatar(session_name: str, file: UploadFile = File(...)) -> dict
         raise
     except RPCError as exc:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Error uploading avatar for %s", session_name)
-        raise HTTPException(status_code=500, detail="Failed to upload avatar.")
+        raise _unexpected_exception(exc, "Failed to upload avatar.")
     finally:
         _finish_avatar_operation(session_name)
 
@@ -526,16 +656,17 @@ async def upload_avatar_batch(
             message=humanize_rpc_error(exc),
         )
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
+        detail = humanize_exception(exc, "Failed to upload profile photos.")
         await _broadcast_avatar_upload_progress(
             session_name,
             "failed",
             current=0,
             total=len(files),
-            message="Failed to upload profile photos.",
+            message=detail,
         )
         logger.exception("Error uploading avatar batch for %s", session_name)
-        raise HTTPException(status_code=500, detail="Failed to upload profile photos.")
+        raise HTTPException(status_code=500, detail=detail)
     finally:
         _finish_avatar_operation(session_name)
 
@@ -580,9 +711,9 @@ async def delete_avatar(session_name: str) -> dict[str, Any]:
         raise _flood_wait_exception(exc)
     except RPCError as exc:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Error deleting avatar for %s", session_name)
-        raise HTTPException(status_code=500, detail="Failed to delete avatar.")
+        raise _unexpected_exception(exc, "Failed to delete avatar.")
     finally:
         _finish_avatar_operation(session_name)
 
@@ -607,9 +738,9 @@ async def get_privacy_info(session_name: str) -> dict[str, Any]:
         raise _flood_wait_exception(exc)
     except RPCError as exc:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Error loading privacy settings for %s", session_name)
-        raise HTTPException(status_code=500, detail="Failed to load privacy settings.")
+        raise _unexpected_exception(exc, "Failed to load privacy settings.")
 
 
 @router.put("/{session_name}/privacy")
@@ -660,6 +791,6 @@ async def update_privacy_settings(
         raise _flood_wait_exception(exc)
     except RPCError as exc:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(exc))
-    except Exception:
+    except Exception as exc:
         logger.exception("Error updating privacy settings for %s", session_name)
-        raise HTTPException(status_code=500, detail="Failed to update privacy settings.")
+        raise _unexpected_exception(exc, "Failed to update privacy settings.")

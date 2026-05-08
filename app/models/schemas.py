@@ -141,3 +141,12 @@ class ErrorResponse(BaseModel):
 
     detail: str
     error_code: Optional[str] = None
+
+
+class UILogRequest(BaseModel):
+    """Safe frontend action log payload."""
+
+    action: str = Field(..., min_length=1, max_length=80)
+    session_name: Optional[str] = Field(None, max_length=128)
+    entity_id: Optional[int] = None
+    context: dict[str, Any] = Field(default_factory=dict)

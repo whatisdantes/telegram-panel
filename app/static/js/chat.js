@@ -232,14 +232,17 @@ class ChatManager {
                 </div>
             `;
 
-            item.addEventListener('click', () => {
+            const openDialog = () => {
                 const entityId = dialog.id || dialog.entity_id;
                 this.app.selectChat(entityId, name);
-            });
+            };
+            item.addEventListener('click', openDialog);
+            this.app.makeKeyboardAction(item, openDialog, `Open chat ${name}`);
 
             listEl.appendChild(item);
         });
 
+        this.app.localizeFragment(listEl);
         this.updateDeleteChatButton();
     }
 
@@ -296,15 +299,21 @@ class ChatManager {
                 </div>
             `;
 
-            item.addEventListener('click', () => {
+            const openContactChat = () => {
                 this.app.selectChat(contact.id, name);
-            });
+            };
+            item.addEventListener('click', openContactChat);
+            this.app.makeKeyboardAction(item, openContactChat, `Open contact chat ${name}`);
 
             const editBtn = item.querySelector('.contact-edit-btn');
             if (editBtn) {
                 editBtn.addEventListener('click', (event) => {
                     event.preventDefault();
                     event.stopPropagation();
+                    this.app.logUiAction('contact_edit_modal_opened', {
+                        entity_id: Number(contact.id) || null,
+                        context: { source: 'contact_list' }
+                    });
                     this.openContactNamingModal({
                         entity: contact,
                         entityId: contact.id,
@@ -337,6 +346,8 @@ class ChatManager {
 
             listEl.appendChild(item);
         });
+
+        this.app.localizeFragment(listEl);
     }
 
     /**
@@ -353,6 +364,10 @@ class ChatManager {
         }
 
         const label = name || contact.display_name || contact.username || String(entityId);
+        this.app.logUiAction('contact_delete_confirm_opened', {
+            entity_id: Number(entityId) || null,
+            context: { source: 'contact_list' }
+        });
         const confirmed = window.confirm(
             `Delete "${label}" from contacts?\n\nThe chat history will stay; only the saved contact entry will be removed.`
         );
@@ -379,6 +394,10 @@ class ChatManager {
             this.app.state.contacts = (this.app.state.contacts || [])
                 .filter(item => String(item.id) !== String(entityId));
             this.renderContacts(this.app.state.contacts);
+            this.app.logUiAction('contact_deleted', {
+                entity_id: Number(entityId) || null,
+                context: { result: 'success' }
+            });
             this.app.showToast(result.message || 'Contact removed', 'success');
         } finally {
             this.deletingContactIds.delete(deleteKey);
@@ -541,6 +560,7 @@ class ChatManager {
             container.appendChild(fragment);
             this.app.state.messages = sorted;
         }
+        this.app.localizeFragment(container);
     }
 
     /**
@@ -681,6 +701,10 @@ class ChatManager {
         }
 
         const title = this.app.state.currentChatTitle || dialog?.name || 'this chat';
+        this.app.logUiAction('chat_delete_confirm_opened', {
+            entity_id: Number(entityId) || null,
+            context: { source: 'chat_header' }
+        });
         const confirmed = window.confirm(
             `Delete chat with "${title}" for both participants?\n\nTelegram will try to remove the private dialog history on both sides.`
         );
@@ -710,6 +734,10 @@ class ChatManager {
         this.app.state.currentChat = null;
         this.app.state.currentChatTitle = null;
         this.app.state.messages = [];
+        this.app.logUiAction('chat_deleted', {
+            entity_id: Number(entityId) || null,
+            context: { result: 'success', deleted_for_both: Boolean(result.deleted_for_both) }
+        });
         this.app._resetChatArea();
         document.getElementById('messages-empty').querySelector('.empty-text').textContent = 'Chat deleted';
         this._refreshDialogsForCurrentAccount();
@@ -750,6 +778,9 @@ class ChatManager {
             return;
         }
 
+        this.app.logUiAction('contact_add_modal_opened', {
+            context: { source: 'contacts_sidebar', mode: 'identifier' }
+        });
         this.contactModalContext = {
             mode: 'identifier',
             identifier: '',
@@ -826,6 +857,10 @@ class ChatManager {
             fallbackName,
             sourceLabel: options.sourceLabel || 'user'
         };
+        this.app.logUiAction('contact_add_modal_opened', {
+            entity_id: Number(entityId) || null,
+            context: { source: options.sourceLabel || 'entity', mode: 'entity' }
+        });
 
         const titleEl = document.getElementById('add-contact-modal-title');
         const noteEl = document.getElementById('add-contact-target-note');
@@ -1039,6 +1074,14 @@ class ChatManager {
         }
 
         this._setContactModalStatus(data.message || 'Contact saved', 'success');
+        this.app.logUiAction(context.mode === 'entity' ? 'contact_saved_from_entity' : 'contact_saved_by_identifier', {
+            entity_id: Number(data.id || context.entityId) || null,
+            context: {
+                mode: context.mode || 'identifier',
+                result: 'success',
+                has_custom_name: Boolean(firstName || lastName)
+            }
+        });
         this.app.hideModal('modal-add-contact');
         this.contactModalContext = null;
 

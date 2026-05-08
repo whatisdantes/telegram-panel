@@ -86,6 +86,7 @@ class AccountManager {
         filteredAccounts.forEach(account => {
             listEl.appendChild(this.renderAccountItem(account));
         });
+        this.app.localizeFragment(listEl);
     }
 
     /**
@@ -140,10 +141,12 @@ class AccountManager {
             </div>
         `;
 
-        item.addEventListener('click', (e) => {
+        const selectAccount = (e) => {
             if (e.target.closest('.action-btn')) return;
             this.app.selectAccount(account.session_name);
-        });
+        };
+        item.addEventListener('click', selectAccount);
+        this.app.makeKeyboardAction(item, selectAccount, `Select account ${displayName}`);
 
         item.querySelectorAll('.action-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -158,6 +161,10 @@ class AccountManager {
                         this.disconnectAccount(session);
                         break;
                     case 'info':
+                        this.app.logUiAction('account_info_opened', {
+                            session_name: session,
+                            context: { source: 'accounts_panel' }
+                        });
                         this.showAccountInfo(session);
                         break;
                 }
@@ -527,38 +534,22 @@ class AccountManager {
         }
 
         if (status === 'unauthorized') {
-            this.app.showToast(
-                data.error_msg || `${sessionName} was moved to accounts/dead/`,
-                'warning',
-                6000
-            );
+            this.app.notifyCriticalAccountStatus(sessionName, status);
             return;
         }
 
         if (status === 'frozen') {
-            this.app.showToast(
-                data.error_msg || 'Аккаунт заморожен',
-                'warning',
-                7000
-            );
+            this.app.notifyCriticalAccountStatus(sessionName, status);
             return;
         }
 
         if (status === 'temporary_spamblock') {
-            this.app.showToast(
-                data.error_msg || 'Аккаунт во временном спамблоке',
-                'warning',
-                7000
-            );
+            this.app.notifyCriticalAccountStatus(sessionName, status);
             return;
         }
 
         if (status === 'permanent_spamblock') {
-            this.app.showToast(
-                data.error_msg || 'Аккаунт в вечном спамблоке',
-                'warning',
-                7000
-            );
+            this.app.notifyCriticalAccountStatus(sessionName, status);
             return;
         }
 

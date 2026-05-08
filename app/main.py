@@ -10,11 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import accounts, customization, messages, profile, ws
+from app.api import accounts, customization, messages, profile, ui_logs, ws
 from app.api.ws import ws_manager
 from app.config import settings
 from app.logging_setup import setup_logging
 from app.telegram.client_manager import TelegramClientManager
+from app.telegram.error_map import humanize_exception
 
 LOG_FILE_PATH = setup_logging(settings.LOG_LEVEL, settings.LOG_FILE)
 logger = logging.getLogger(__name__)
@@ -98,6 +99,7 @@ app.include_router(accounts.router)
 app.include_router(customization.router)
 app.include_router(messages.router)
 app.include_router(profile.router)
+app.include_router(ui_logs.router)
 app.include_router(ws.router)
 
 # Determine static files directory
@@ -132,7 +134,10 @@ async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
         content={
-            "detail": "An internal server error occurred. Please try again later.",
+            "detail": humanize_exception(
+                exc,
+                "Произошла внутренняя ошибка панели. Попробуйте повторить действие.",
+            ),
         },
     )
 

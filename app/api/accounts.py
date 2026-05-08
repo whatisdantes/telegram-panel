@@ -12,7 +12,7 @@ from telethon.errors import (
 
 from app.models.schemas import AccountStatus
 from app.telegram.client_manager import TelegramClientManager
-from app.telegram.error_map import format_flood_wait_error, humanize_rpc_error
+from app.telegram.error_map import format_flood_wait_error, humanize_exception, humanize_rpc_error
 from app.telegram.utils import get_user_info
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,11 @@ def _flood_wait_exception(exc: FloodWaitError) -> HTTPException:
         detail=format_flood_wait_error(exc),
         headers={"Retry-After": str(exc.seconds)},
     )
+
+
+def _unexpected_exception(exc: Exception, fallback: str) -> HTTPException:
+    """Return a safe HTTPException while preserving known Telethon explanations."""
+    return HTTPException(status_code=500, detail=humanize_exception(exc, fallback))
 
 
 @router.get("/", response_model=list[AccountStatus])
@@ -80,10 +85,7 @@ async def connect_account(session_name: str) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(e))
     except Exception as e:
         logger.exception("Unexpected error connecting %s", session_name)
-        raise HTTPException(
-            status_code=500,
-            detail="An unexpected error occurred while connecting.",
-        )
+        raise _unexpected_exception(e, "An unexpected error occurred while connecting.")
 
 
 @router.post("/{session_name}/disconnect", response_model=AccountStatus)
@@ -101,10 +103,7 @@ async def disconnect_account(session_name: str) -> dict[str, Any]:
         raise
     except Exception as e:
         logger.exception("Error disconnecting %s", session_name)
-        raise HTTPException(
-            status_code=500,
-            detail="An error occurred while disconnecting.",
-        )
+        raise _unexpected_exception(e, "An error occurred while disconnecting.")
 
 
 @router.post("/{session_name}/reconnect", response_model=AccountStatus)
@@ -125,10 +124,7 @@ async def reconnect_account(session_name: str) -> dict[str, Any]:
         )
     except Exception as e:
         logger.exception("Error reconnecting %s", session_name)
-        raise HTTPException(
-            status_code=500,
-            detail="An error occurred while reconnecting.",
-        )
+        raise _unexpected_exception(e, "An error occurred while reconnecting.")
 
 
 @router.get("/{session_name}/status", response_model=AccountStatus)
@@ -162,7 +158,4 @@ async def get_own_profile(session_name: str) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=humanize_rpc_error(e))
     except Exception as e:
         logger.exception("Error getting profile for %s", session_name)
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to retrieve profile information.",
-        )
+        raise _unexpected_exception(e, "Failed to retrieve profile information.")

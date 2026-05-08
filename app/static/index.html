@@ -240,6 +240,16 @@
                         <div class="profile-danger-note">Deletes every profile photo after confirmation.</div>
                     </div>
                 </div>
+                <div id="profile-avatar-library" class="profile-avatar-library hidden">
+                    <div class="profile-avatar-library-header">
+                        <div>
+                            <div class="profile-avatar-library-title">Current Profile Photos</div>
+                            <div id="profile-avatar-library-meta" class="profile-avatar-library-meta">Loading photos...</div>
+                        </div>
+                        <button id="btn-refresh-avatar-library" class="btn btn-small btn-secondary" type="button">Refresh</button>
+                    </div>
+                    <div id="profile-avatar-library-list" class="profile-avatar-library-list"></div>
+                </div>
                 <div id="profile-avatar-queue" class="profile-avatar-queue hidden">
                     <div class="profile-avatar-queue-header">
                         <div class="profile-avatar-queue-title">Queued Profile Photos</div>
@@ -343,6 +353,22 @@
                             <span class="theme-option-preview theme-option-preview-light"></span>
                             <span class="theme-option-label">Light</span>
                             <span class="theme-option-description">High-contrast surface for bright rooms.</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="customization-section">
+                    <div class="customization-section-header">
+                        <h4 data-i18n="customization.language.title">Language</h4>
+                        <span data-i18n="customization.language.subtitle">Switch interface text</span>
+                    </div>
+                    <div class="language-picker" role="radiogroup" aria-label="Language picker">
+                        <button id="btn-language-ru" class="language-option" type="button" data-language-option="ru" aria-pressed="true">
+                            <span class="language-option-code">RU</span>
+                            <span class="language-option-text">Русский</span>
+                        </button>
+                        <button id="btn-language-en" class="language-option" type="button" data-language-option="en" aria-pressed="false">
+                            <span class="language-option-code">EN</span>
+                            <span class="language-option-text">English</span>
                         </button>
                     </div>
                 </div>

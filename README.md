@@ -1,341 +1,193 @@
 # Telegram Panel
 
-Локальная веб-панель для работы с уже существующими Telegram `.session` через FastAPI + Telethon.
+Telegram Panel - локальная веб-панель для работы с Telegram-аккаунтами через Telethon. Проект запускает FastAPI-сервер, открывает браузерную панель и позволяет управлять чатами, контактами, профилем аккаунта, медиа, приватностью и состояниями аккаунтов из одного интерфейса.
 
-Проект поднимает браузерный интерфейс без build-шага, сканирует папку `accounts/`, подключает найденные сессии и позволяет работать с диалогами, сообщениями, профилем и частью настроек приватности.
+Панель рассчитана на локальное использование. Файлы сессий, логи, персональные настройки интерфейса и загруженные фоновые медиа не должны попадать в публичный репозиторий.
 
-## Что умеет сейчас
+## Возможности
 
-- Подключать и переподключать существующие `.session`
-- Показывать список аккаунтов в отдельной правой панели с поиском, статусами и аватарками
-- Открывать диалоги, читать историю и получать новые сообщения в реальном времени через WebSocket
-- Отправлять текстовые сообщения
-- Удалять приватный чат с пользователем у обеих сторон
-- Отображать медиа в чате:
-  - фото
-  - видео
-  - аудио и voice
-  - файлы
-  - контактные карточки с переходом в диалог
-- Показывать аватарки пользователей и аккаунтов
-- Искать собеседника по `@username`, номеру телефона или `user_id`
-- Открывать профиль собеседника прямо из чата и добавлять его в контакты
-- Добавлять найденного через `Open New Chat` пользователя в контакты
-- Редактировать профиль:
-  - `first_name`
-  - `last_name`
-  - `username`
-  - фото профиля
-  - загрузку одной фотографии
-  - загрузку нескольких фотографий очередью с ручным порядком
-  - удаление всех фото профиля
-- Читать и менять базовые настройки приватности:
-  - `Last seen & online`
-  - `Phone number`
-  - `Profile photo`
-  - `Forwarded messages`
-  - `Groups & channels`
-  - `Calls`
-- Вести подробный лог всех HTTP/WebSocket и ключевых Telegram-действий в `logs.log`
+- Подключение нескольких Telegram-аккаунтов из папки `accounts/`.
+- Автоматическая проверка аккаунта через `@SpamBot` при подключении.
+- Скрытие проблемных аккаунтов с переносом в отдельные папки: `accounts/dead/`, `accounts/frozen/`, `accounts/time_sb/`, `accounts/immortal_sb/`.
+- Список чатов и контактов с обновлением в реальном времени.
+- Ghost-mode: режим чтения без отметки сообщений как прочитанных.
+- Отправка сообщений и отображение понятных ошибок Telegram API с сохранением исходного кода ошибки.
+- Просмотр медиа в чатах: фото, видео, GIF/документы, аудио, голосовые сообщения и контакты.
+- Переход из чата в профиль пользователя, добавление, изменение и удаление контактов.
+- Удаление чатов с пользователями, если Telegram разрешает удаление для обеих сторон.
+- Управление фото профиля аккаунта: очередь нескольких фото, предпросмотр, порядок загрузки, прогресс и удаление всех фото.
+- Настройки приватности аккаунта, включая пункт "Кто может отправлять мне сообщения".
+- Кастомизация интерфейса: темная/светлая тема, фон PNG/JPG/MP4, прозрачные панели.
+- Локализация RU/EN.
+- Подробное логирование действий в `logs.log`.
 
-## Важная логика при подключении
+## Требования
 
-При каждом `connect/reconnect` аккаунт после успешной авторизации автоматически пишет `/start` в `@SpamBot`.
+- Windows 10/11.
+- Python 3.10 или новее.
+- Установленный браузер. `run.bat` сначала пробует открыть Chrome в режиме инкогнито, затем Edge, Brave, Firefox или системный браузер.
+- Telegram `.session` файлы для аккаунтов, которые нужно подключать.
 
-Если по ответу `@SpamBot` определяется проблема, сессия убирается из панели и переносится в отдельную папку:
+## Установка
 
-- `accounts/dead/`
-  - неавторизованная сессия
-  - требуется 2FA для этой сессии
-- `accounts/frozen/`
-  - блокировка за нарушение Telegram Terms of Service
-- `accounts/time_sb/`
-  - временный спамблок
-- `accounts/immortal_sb/`
-  - вечный спамблок
+1. Скачай или клонируй проект.
 
-После переноса аккаунт больше не отображается в веб-интерфейсе.
-
-## Стек
-
-| Компонент | Используется |
-|-----------|--------------|
-| Backend | FastAPI |
-| Telegram API | Telethon |
-| Frontend | Vanilla JS + CSS |
-| Realtime | WebSocket |
-| Конфиг | `pydantic-settings` + `.env` |
-| Работа с файлами | `python-multipart`, `aiofiles`, `Pillow` |
-
-## Структура проекта
-
-```text
-telegram-panel/
-├── .env.example
-├── convert_sessions.py
-├── download_libraries.bat
-├── logs.log
-├── README.md
-├── requirements.txt
-├── run.bat
-├── run.py
-├── accounts/
-│   ├── dead/
-│   ├── frozen/
-│   ├── immortal_sb/
-│   └── time_sb/
-└── app/
-    ├── config.py
-    ├── logging_setup.py
-    ├── main.py
-    ├── api/
-    │   ├── accounts.py
-    │   ├── messages.py
-    │   ├── profile.py
-    │   └── ws.py
-    ├── models/
-    │   └── schemas.py
-    ├── static/
-    │   ├── index.html
-    │   ├── css/style.css
-    │   └── js/
-    │       ├── accounts.js
-    │       ├── app.js
-    │       ├── chat.js
-    │       ├── profile.js
-    │       └── ws.js
-    └── telegram/
-        ├── client_manager.py
-        ├── error_map.py
-        └── utils.py
+```powershell
+git clone https://github.com/whatisdantes/telegram-panel.git
+cd telegram-panel
 ```
 
-Дополнительно во время работы создаются технические папки:
+2. Создай виртуальное окружение.
 
-- `accounts/_media_cache/` — кэш скачанных медиа
-- `accounts/_avatar_cache/` — кэш аватарок
-
-## Скрипты в корне
-
-### `run.py`
-
-Основная точка входа. Запускает `uvicorn` c приложением `app.main:app`.
-
-### `run.bat`
-
-Windows-обёртка над `py run.py`.
-
-### `download_libraries.bat`
-
-Быстрая установка зависимостей:
-
-```bat
-pip install -r requirements.txt
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
 ```
 
-### `convert_sessions.py`
+3. Установи зависимости.
 
-Одноразовый служебный скрипт для конвертации старых `.session` SQLite-файлов из 6-колоночной схемы в 5-колоночную схему Telethon.
-
-Запуск:
-
-```bat
-py convert_sessions.py
+```powershell
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-Нужен только если сессии были подготовлены в несовместимом формате.
+4. При необходимости создай `.env` на основе `.env.example`.
 
-## API
+```powershell
+copy .env.example .env
+```
 
-### Аккаунты `/api/accounts`
+Если `.env` не создан, проект использует значения по умолчанию из `app/config.py`.
 
-| Method | Endpoint | Описание |
-|--------|----------|----------|
-| GET | `/` | Список доступных аккаунтов |
-| POST | `/{session_name}/connect` | Подключить аккаунт |
-| POST | `/{session_name}/disconnect` | Отключить аккаунт |
-| POST | `/{session_name}/reconnect` | Переподключить аккаунт |
-| GET | `/{session_name}/status` | Текущий статус аккаунта |
-| GET | `/{session_name}/me` | Информация о текущем пользователе |
+## Настройка `.env`
 
-### Сообщения `/api/messages`
+Основные параметры:
 
-| Method | Endpoint | Описание |
-|--------|----------|----------|
-| GET | `/{session_name}/dialogs` | Последние диалоги |
-| GET | `/{session_name}/history/{entity_id}` | История сообщений |
-| DELETE | `/{session_name}/dialog/{entity_id}` | Удалить приватный чат у обеих сторон |
-| POST | `/{session_name}/send` | Отправить текстовое сообщение |
-| POST | `/{session_name}/resolve` | Разрешить `username / phone / id` в entity |
-| GET | `/{session_name}/user/{entity_id}` | Информация о пользователе/сущности |
-| POST | `/{session_name}/user/{entity_id}/contact` | Добавить пользователя в контакты |
-| GET | `/{session_name}/user/{entity_id}/avatar` | Аватар сущности |
-| GET | `/{session_name}/media/{entity_id}/{message_id}` | Медиа конкретного сообщения |
-
-### Профиль `/api/profile`
-
-| Method | Endpoint | Описание |
-|--------|----------|----------|
-| PUT | `/{session_name}/update` | Обновить имя / фамилию / username |
-| GET | `/{session_name}/avatar` | Текущее главное фото аккаунта |
-| POST | `/{session_name}/avatar` | Загрузить одну новую фотографию профиля |
-| POST | `/{session_name}/avatar/batch` | Загрузить несколько фото профиля по порядку |
-| DELETE | `/{session_name}/avatar` | Удалить все фото профиля |
-| GET | `/{session_name}/privacy` | Прочитать поддерживаемые privacy-настройки |
-| PUT | `/{session_name}/privacy` | Обновить базовые privacy-настройки |
-
-### WebSocket
-
-| Endpoint | Назначение |
-|----------|------------|
-| `/ws` | Глобальные события всех аккаунтов |
-| `/ws/{session_name}` | События конкретного аккаунта |
-
-Текущие типы событий:
-
-- `new_message`
-- `status_change`
-- `typing`
-- `error`
-
-## Статусы аккаунтов
-
-Менеджер использует такие статусы:
-
-- `connected`
-- `disconnected`
-- `unauthorized`
-- `frozen`
-- `temporary_spamblock`
-- `permanent_spamblock`
-- `invalid_session`
-- `reconnecting`
-- `error`
-
-Часть статусов видна только как результат операции подключения, потому что после карантина аккаунт удаляется из активного списка.
-
-## Конфигурация
-
-Настройки читаются через `app/config.py`.
-
-Поддерживаемые переменные:
-
-```ini
+```env
 API_ID=2040
 API_HASH=b18441a1ff607e10a989891a5462e627
+SESSIONS_DIR=accounts
+HOST=0.0.0.0
+PORT=8080
+LOG_LEVEL=INFO
+```
+
+Также в проекте используются параметры подключения Telegram-клиента:
+
+```env
 DEVICE_MODEL=Asus TUF
 APP_VERSION=6.7.5 x64
 SYSTEM_VERSION=Windows 11 x64
 LANG_CODE=ru
 SYSTEM_LANG_CODE=ru-RU
-SESSIONS_DIR=accounts
-HOST=0.0.0.0
-PORT=8080
-LOG_LEVEL=INFO
-LOG_FILE=logs.log
 ```
 
-Важно:
+Обычно их можно не менять, если текущие значения подходят.
 
-- `API_ID`, `API_HASH` и параметры client fingerprint уже имеют значения по умолчанию в коде
-- при необходимости их можно переопределить через `.env`
-- `LOG_FILE` по умолчанию указывает на `logs.log` в корне проекта
-- `.env.example` сейчас содержит базовый минимальный шаблон, недостающие поля можно добавить вручную
+## Подготовка аккаунтов
+
+1. Создай папку `accounts/`, если ее еще нет.
+2. Помести в нее `.session` файлы аккаунтов.
+3. Запусти панель и подключи нужный аккаунт в правой панели.
+
+Проблемные аккаунты панель переносит автоматически:
+
+- `accounts/dead/` - неавторизованные сессии.
+- `accounts/frozen/` - аккаунты, замороженные по ответу `@SpamBot`.
+- `accounts/time_sb/` - аккаунты с временным спамблоком.
+- `accounts/immortal_sb/` - аккаунты с вечным спамблоком.
+
+Если старые `.session` файлы имеют несовместимую структуру, можно один раз запустить конвертацию:
+
+```powershell
+python convert_sessions.py
+```
 
 ## Запуск
 
-### Windows
+Самый простой способ на Windows:
 
-```bat
-download_libraries.bat
-run.bat
+```powershell
+.\run.bat
 ```
 
-### Универсальный вариант
+`run.bat` запускает сервер и открывает панель по адресу `http://localhost:8080/` в приватном режиме браузера, чтобы старый кэш интерфейса не мешал работе.
 
-```bash
-python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate     # Linux/macOS
-pip install -r requirements.txt
+Ручной запуск:
+
+```powershell
 python run.py
 ```
 
-После запуска откройте:
+После запуска открой:
 
 ```text
-http://localhost:8080
+http://localhost:8080/
 ```
 
-## Подготовка сессий
+Остановить сервер можно закрытием окна консоли или сочетанием `Ctrl+C`.
 
-Поместите готовые `.session` в папку `accounts/`.
+## Локальные Файлы
 
-Пример:
+Эти файлы и папки являются локальными и не должны попадать в GitHub:
+
+- `accounts/` - Telegram-сессии аккаунтов.
+- `logs.log` - подробные логи работы панели.
+- `ui_customization.json` - персональные настройки интерфейса.
+- `app/static/customization/` - загруженные фоновые изображения и видео.
+- `__pycache__/` и другие кэши Python.
+
+Они уже добавлены в `.gitignore`.
+
+## Проверка Перед Коммитом
+
+Перед `git add`, `git commit` и `git push` полезно выполнить:
+
+```powershell
+python -m compileall app
+node --check app/static/js/app.js
+node --check app/static/js/accounts.js
+node --check app/static/js/chat.js
+node --check app/static/js/profile.js
+git diff --check
+git status --short --ignored
+```
+
+В `git status --short --ignored` локальные данные должны быть отмечены как ignored, например `!! accounts/`, `!! logs.log`, `!! ui_customization.json`.
+
+## Частые Проблемы
+
+### Открывается старая версия интерфейса
+
+Обычно причина в кэше браузера. Запускай панель через `run.bat`: он добавляет cache-busting параметр к URL и открывает браузер в приватном режиме.
+
+### Аккаунт пропал из панели
+
+Проверь папки `accounts/dead/`, `accounts/frozen/`, `accounts/time_sb/` и `accounts/immortal_sb/`. Панель переносит туда аккаунты, которые не авторизованы или получили проблемный статус от `@SpamBot`.
+
+### Ошибка Telethon `TypeNotFoundError`
+
+Чаще всего помогает перезапуск панели. Если ошибка повторяется, проверь версию Telethon:
+
+```powershell
+python -m pip show telethon
+python -m pip install --upgrade telethon
+```
+
+### Медиа не отображается
+
+Проверь `logs.log`. Если Telegram прислал неизвестный или неподдерживаемый тип медиа, панель должна показать fallback-карточку файла, а не ломать чат.
+
+## Структура Проекта
 
 ```text
-accounts/
-  my_account.session
-  second_account.session
+app/
+  api/              FastAPI endpoints
+  models/           Pydantic schemas
+  static/           HTML, CSS, JS веб-панели
+  telegram/         Telethon client manager, utils, error mapping
+accounts/           Локальные Telegram-сессии, не коммитить
+run.py              Запуск uvicorn-сервера
+run.bat             Запуск сервера и браузера
+requirements.txt    Python-зависимости
 ```
-
-Если часть старых сессий не читается из-за несовместимой SQLite-схемы, прогоните:
-
-```bat
-py convert_sessions.py
-```
-
-## Ограничения и особенности
-
-- Панель работает только с уже существующими `.session`
-- Создание новых сессий через номер телефона пока не реализовано
-- Ввод 2FA-пароля из UI не реализован
-- Отправка медиа из интерфейса пока не реализована
-- Удаление чата у обеих сторон поддерживается только для приватных диалогов с пользователями
-- Добавление в контакты доступно только для обычных пользователей
-- Privacy-редактор меняет только базовый режим
-  - если у настройки уже есть исключения, при сохранении они будут заменены
-- На старте приложение только сканирует `accounts/`
-  - проверка `@SpamBot` происходит при подключении / переподключении
-
-## Безопасность и эксплуатация
-
-Текущее состояние проекта:
-
-- панель не имеет собственной аутентификации
-- CORS открыт на `*`
-- `.session` лежат на локальном диске рядом с приложением
-- подробные действия приложения пишутся в `logs.log`
-- ошибки API отдаются в безопасном виде, подробности пишутся в лог
-
-Для использования вне локальной машины стоит как минимум добавить:
-
-- аутентификацию
-- HTTPS
-- ограничение CORS
-- отдельное хранение конфигурации и сессий
-
-## Что уже неактуально из старых описаний
-
-В текущем проекте уже поддерживаются вещи, которые раньше были только в планах:
-
-- отображение аватарок
-- просмотр медиа в чате
-- работа с `MessageMediaContact`
-- редактирование базовых privacy-настроек
-- автоматическая quarantine-логика для проблемных аккаунтов
-- открытие профиля человека из чата и добавление в контакты
-- пакетная загрузка фото профиля с очередью и порядком
-- удаление приватного чата у обеих сторон
-- подробное файловое логирование в `logs.log`
-
-## Куда смотреть в коде
-
-- [app/main.py](app/main.py) — инициализация FastAPI и lifespan
-- [app/logging_setup.py](app/logging_setup.py) — централизованная настройка логирования в `logs.log`
-- [app/telegram/client_manager.py](app/telegram/client_manager.py) — подключение аккаунтов, статусы, `@SpamBot`, quarantine
-- [app/api/messages.py](app/api/messages.py) — диалоги, история, медиа, resolve, контакты, удаление чатов
-- [app/api/profile.py](app/api/profile.py) — профиль, фотографии профиля, privacy
-- [app/static/js/accounts.js](app/static/js/accounts.js) — UI списка аккаунтов
-- [app/static/js/chat.js](app/static/js/chat.js) — рендер сообщений, медиа и `Open New Chat`
-- [app/static/js/profile.js](app/static/js/profile.js) — профиль, фото профиля, privacy и карточки пользователей

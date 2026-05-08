@@ -6,6 +6,12 @@ import re
 
 from telethon.errors import FloodWaitError, RPCError
 
+TYPE_NOT_FOUND_DETAIL = (
+    "Telethon получил новый или неизвестный тип данных Telegram и не смог его прочитать. "
+    "Перезапустите панель; если ошибка повторится, обновите Telethon. "
+    "(код: TypeNotFoundError)"
+)
+
 ERROR_MAP = {
     "AUTH_KEY_INVALID": "Ключ сессии Telegram поврежден или устарел.",
     "BAD_REQUEST": (
@@ -33,6 +39,11 @@ ERROR_MAP = {
     "USERNAME_INVALID": "Указано некорректное имя пользователя.",
     "USERNAME_NOT_OCCUPIED": "Такое имя пользователя сейчас никем не занято.",
 }
+
+
+def is_type_not_found_error(exc: Exception) -> bool:
+    """Return True for Telethon TypeNotFoundError without depending on its import path."""
+    return exc.__class__.__name__ == "TypeNotFoundError"
 
 
 def _camel_to_snake(value: str) -> str:
@@ -91,6 +102,17 @@ def humanize_rpc_error(exc: RPCError) -> str:
     """Translate a Telethon RPCError into a human-readable message."""
     raw_message = getattr(exc, "message", "") or str(exc)
     return humanize_error(extract_rpc_error_code(exc), raw_message)
+
+
+def humanize_exception(exc: Exception, fallback: str | None = None) -> str:
+    """Return a safe user-facing message for known Telegram/Telethon exceptions."""
+    if is_type_not_found_error(exc):
+        return TYPE_NOT_FOUND_DETAIL
+
+    if isinstance(exc, RPCError):
+        return humanize_rpc_error(exc)
+
+    return fallback or "Произошла внутренняя ошибка панели. Попробуйте повторить действие."
 
 
 def format_flood_wait_error(exc: FloodWaitError) -> str:

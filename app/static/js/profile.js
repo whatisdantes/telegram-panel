@@ -7,6 +7,7 @@ class ProfileManager {
         this.loadedProfile = null;
         this.loadedChatProfile = null;
         this.loadedPrivacySettings = {};
+        this.currentProfilePhotos = [];
         this.avatarUploadQueue = [];
         this.isAvatarUploadInProgress = false;
         this.hasLocalAvatarBatchRequest = false;
@@ -66,6 +67,16 @@ class ProfileManager {
         if (btnClearQueue) {
             btnClearQueue.addEventListener('click', () => {
                 this._clearAvatarQueue();
+            });
+        }
+
+        const btnRefreshAvatarLibrary = document.getElementById('btn-refresh-avatar-library');
+        if (btnRefreshAvatarLibrary) {
+            btnRefreshAvatarLibrary.addEventListener('click', () => {
+                const sessionName = this.app.state.currentAccount;
+                if (sessionName) {
+                    this.loadProfilePhotos(sessionName);
+                }
             });
         }
 
@@ -154,6 +165,32 @@ class ProfileManager {
     }
 
     /**
+     * Load and render the full current profile-photo set.
+     * @param {string} sessionName
+     */
+    async loadProfilePhotos(sessionName) {
+        const libraryEl = document.getElementById('profile-avatar-library');
+        const metaEl = document.getElementById('profile-avatar-library-meta');
+        const listEl = document.getElementById('profile-avatar-library-list');
+
+        if (!libraryEl || !metaEl || !listEl) return null;
+
+        libraryEl.classList.remove('hidden');
+        metaEl.textContent = 'Loading photos...';
+        listEl.innerHTML = '';
+
+        const data = await this.app.api('GET', `/api/profile/${encodeURIComponent(sessionName)}/avatar/photos`);
+        if (!data) {
+            metaEl.textContent = 'Could not load profile photos.';
+            return null;
+        }
+
+        this.currentProfilePhotos = Array.isArray(data.photos) ? data.photos : [];
+        this._renderProfilePhotoLibrary();
+        return data;
+    }
+
+    /**
      * Show the profile editing modal
      */
     async showProfileModal() {
@@ -164,6 +201,10 @@ class ProfileManager {
         }
 
         this.app.showModal('modal-profile');
+        this.app.logUiAction('own_profile_modal_opened', {
+            session_name: sessionName,
+            context: { source: 'sidebar_profile_button' }
+        });
 
         // Show loading state
         const btnSave = document.getElementById('btn-save-profile');
@@ -171,6 +212,7 @@ class ProfileManager {
 
         await Promise.all([
             this.loadProfile(sessionName),
+            this.loadProfilePhotos(sessionName),
             this.showPrivacyInfo(sessionName)
         ]);
 
@@ -322,6 +364,7 @@ class ProfileManager {
         if (result) {
             this.app.showToast(result.message || 'Avatar updated', 'success');
             await this.loadProfile(sessionName);
+            await this.loadProfilePhotos(sessionName);
             await this.app.accountManager.loadAccounts();
         }
     }
@@ -421,6 +464,7 @@ class ProfileManager {
                 this._disposeAvatarQueue();
                 this.app.showToast(result.message || 'Profile photos uploaded', 'success');
                 await this.loadProfile(sessionName);
+                await this.loadProfilePhotos(sessionName);
                 await this.app.accountManager.loadAccounts();
             }
         } finally {
@@ -473,6 +517,7 @@ class ProfileManager {
             if (result) {
                 this.app.showToast(result.message || 'Profile photos removed', 'success');
                 await this.loadProfile(sessionName);
+                await this.loadProfilePhotos(sessionName);
                 await this.app.accountManager.loadAccounts();
             }
         } finally {
@@ -481,6 +526,55 @@ class ProfileManager {
                 btnDeleteAvatar.disabled = !this.loadedProfile?.photo_url;
             }
         }
+    }
+
+    /**
+     * Render current Telegram profile photos before the upload queue.
+     */
+    _renderProfilePhotoLibrary() {
+        const libraryEl = document.getElementById('profile-avatar-library');
+        const metaEl = document.getElementById('profile-avatar-library-meta');
+        const listEl = document.getElementById('profile-avatar-library-list');
+        const deleteBtn = document.getElementById('btn-delete-avatar');
+
+        if (!libraryEl || !metaEl || !listEl) return;
+
+        const photos = Array.isArray(this.currentProfilePhotos) ? this.currentProfilePhotos : [];
+        libraryEl.classList.remove('hidden');
+        listEl.innerHTML = '';
+        metaEl.textContent = photos.length
+            ? `${photos.length} photo${photos.length === 1 ? '' : 's'} in Telegram profile`
+            : 'No profile photos in Telegram yet.';
+
+        if (deleteBtn) {
+            deleteBtn.disabled = this.isAvatarUploadInProgress || photos.length === 0;
+        }
+
+        if (!photos.length) {
+            listEl.innerHTML = `
+                <div class="profile-avatar-library-empty">
+                    Upload one photo or build a queue to create a profile-photo stack.
+                </div>
+            `;
+            if (this.app.localizeFragment) {
+                this.app.localizeFragment(listEl);
+            }
+            return;
+        }
+
+        photos.forEach(photo => {
+            const item = document.createElement('div');
+            item.className = `profile-photo-item${photo.is_current ? ' is-current' : ''}`;
+            item.innerHTML = `
+                <div class="profile-photo-index">${this._escapeHtml(String(photo.index || ''))}</div>
+                <img class="profile-photo-preview" src="${this._escapeHtml(photo.url || '')}" alt="${this._escapeHtml(`Profile photo ${photo.index || ''}`)}">
+                <div class="profile-photo-caption">
+                    ${photo.is_current ? 'Current' : `#${this._escapeHtml(String(photo.index || ''))}`}
+                </div>
+            `;
+            listEl.appendChild(item);
+        });
+        this.app.localizeFragment(listEl);
     }
 
     /**
@@ -521,7 +615,7 @@ class ProfileManager {
         if (inputAvatarQueue) inputAvatarQueue.disabled = isUploading;
         if (uploadAvatarLabel) uploadAvatarLabel.classList.toggle('is-disabled', isUploading);
         if (uploadQueueLabel) uploadQueueLabel.classList.toggle('is-disabled', isUploading);
-        if (deleteBtn) deleteBtn.disabled = isUploading || !this.loadedProfile?.photo_url;
+        if (deleteBtn) deleteBtn.disabled = isUploading || !(this.currentProfilePhotos || []).length;
 
         if (!this.avatarUploadQueue.length) {
             queueEl.classList.add('hidden');
@@ -591,6 +685,7 @@ class ProfileManager {
                 ? 'Upload 1 queued photo'
                 : `Upload ${this.avatarUploadQueue.length} queued photos`;
         }
+        this.app.localizeFragment(queueEl);
     }
 
     /**
@@ -756,6 +851,11 @@ class ProfileManager {
         }
 
         this.app.showModal('modal-account-info');
+        this.app.logUiAction('chat_profile_opened', {
+            session_name: sessionName,
+            entity_id: Number(entityId) || null,
+            context: { source: 'chat_header' }
+        });
         const body = document.getElementById('account-info-body');
         const titleEl = document.getElementById('account-info-title');
         const primaryBtn = document.getElementById('btn-account-info-primary');
@@ -817,6 +917,10 @@ class ProfileManager {
             || String(this.loadedChatProfile.id);
 
         this.app.hideModal('modal-account-info');
+        this.app.logUiAction('chat_opened_from_profile', {
+            entity_id: Number(this.loadedChatProfile.id) || null,
+            context: { source: 'chat_profile' }
+        });
         this.app.selectChat(this.loadedChatProfile.id, fullName);
     }
 
@@ -829,6 +933,10 @@ class ProfileManager {
         }
 
         this.app.hideModal('modal-account-info');
+        this.app.logUiAction('chat_delete_started_from_profile', {
+            entity_id: Number(this.loadedChatProfile.id) || null,
+            context: { source: 'chat_profile' }
+        });
         this.app.chatManager.deleteCurrentChat();
     }
 
@@ -915,6 +1023,7 @@ class ProfileManager {
                 this._updatePrivacyCardState(select);
             });
         });
+        this.app.localizeFragment(settingsEl);
     }
 
     /**
@@ -1316,6 +1425,7 @@ class ProfileManager {
             deleteChatBtn.classList.toggle('hidden', !canDeleteChat);
             deleteChatBtn.disabled = !canDeleteChat;
         }
+        this.app.localizeFragment(body);
     }
 
     /**

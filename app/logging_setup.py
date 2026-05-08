@@ -4,10 +4,37 @@ from __future__ import annotations
 
 import logging
 import logging.config
+import re
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CONFIGURED_LOG_PATH: Path | None = None
+
+SENSITIVE_LOG_PATTERNS = (
+    (
+        re.compile(r"(Remaining bytes:\s*)[^\r\n]*", re.IGNORECASE),
+        r"\1[redacted]",
+    ),
+    (
+        re.compile(r"(Read [^\r\n]* bytes from a message\.)[^\r\n]*", re.IGNORECASE),
+        r"\1",
+    ),
+)
+
+
+def sanitize_log_text(text: str) -> str:
+    """Remove noisy/sensitive Telethon payload tails while keeping useful diagnostics."""
+    sanitized = text
+    for pattern, replacement in SENSITIVE_LOG_PATTERNS:
+        sanitized = pattern.sub(replacement, sanitized)
+    return sanitized
+
+
+class SafeLogFormatter(logging.Formatter):
+    """Formatter that redacts volatile Telegram payload fragments from all handlers."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return sanitize_log_text(super().format(record))
 
 
 def resolve_log_path(log_file: str) -> Path:
@@ -34,6 +61,7 @@ def setup_logging(log_level: str, log_file: str) -> Path:
             "disable_existing_loggers": False,
             "formatters": {
                 "standard": {
+                    "()": "app.logging_setup.SafeLogFormatter",
                     "format": "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
                 },
             },
